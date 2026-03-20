@@ -8,3 +8,10 @@ __pycache__/
 /tools/
 /resources/
 /resources.old/
+
+# Snakemake runtime
+.snakemake/
+
+# Pipeline outputs
+/results/
+/logs/

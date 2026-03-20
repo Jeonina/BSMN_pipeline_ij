@@ -1,0 +1,18 @@
+# =============================================================================
+# BSMN Somatic Variant Calling Pipeline
+# =============================================================================
+
+include: "common.smk"
+
+
+# --- Target rules ------------------------------------------------------------
+
+rule all:
+    input:
+        expand("results/mapping/{sample}/{sample}.cram", sample=SAMPLES),
+        expand("results/mapping/{sample}/flagstat.txt", sample=SAMPLES),
+
+
+# --- Include stage rules -----------------------------------------------------
+
+include: "rules/mapping.smk"
