@@ -57,18 +57,35 @@ def get_optical_duplicate_pixel_distance(sequencer: str) -> int:
 # ---------------------------------------------------------------------------
 
 def get_bwa_threads() -> int:
-    """Return available logical CPU count (minimum 1)."""
-    return max(1, os.cpu_count() or 1)
+    """Return CPU count capped at 4 on low-memory systems (< 8 GB)."""
+    cpus = max(1, os.cpu_count() or 1)
+    try:
+        total_gb: int = psutil.virtual_memory().total >> 30
+        if total_gb < 8:
+            return min(cpus, 4)
+    except Exception:
+        pass
+    return cpus
+
+
+def get_sort_memory() -> str:
+    """Return sambamba sort memory: 30% of available RAM, min 512 MB."""
+    try:
+        avail_mb: int = psutil.virtual_memory().available >> 20
+        sort_mb = max(512, int(avail_mb * 0.30))
+        return f"{sort_mb}MB"
+    except Exception:
+        return "6GB"
 
 
 def get_bqsr_memory_gb() -> int:
     """
     Return recommended GATK BQSR Java heap in GB.
-    Capped at half total RAM, between 4 GB and 64 GB.
+    Capped at half total RAM, between 2 GB and 64 GB.
     """
     try:
         total_gb: int = psutil.virtual_memory().total >> 30
-        return max(4, min(total_gb // 2, 64))
+        return max(2, min(total_gb // 2, 64))
     except Exception:
         return 16
 
@@ -77,7 +94,7 @@ def get_markdup_memory_gb() -> int:
     """Return recommended Picard MarkDuplicates Java heap in GB."""
     try:
         total_gb: int = psutil.virtual_memory().total >> 30
-        return max(4, min(total_gb // 4, 32))
+        return max(2, min(total_gb // 4, 32))
     except Exception:
         return 8
 
@@ -102,8 +119,8 @@ def resolve_params(fastq_path: str, output_yaml: str) -> dict:
         "input_fastq": os.path.abspath(fastq_path),
         "sequencer": sequencer,
         "bwa_threads": get_bwa_threads(),
-        "sort_threads": 4,
-        "sort_memory": "6GB",
+        "sort_threads": min(4, get_bwa_threads()),
+        "sort_memory": get_sort_memory(),
         "optical_duplicate_pixel_distance": get_optical_duplicate_pixel_distance(sequencer),
         "bqsr_memory_gb": bqsr_mem,
         "markdup_memory": f"{markdup_mem}G",

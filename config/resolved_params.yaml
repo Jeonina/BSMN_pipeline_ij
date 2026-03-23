@@ -1,0 +1,9 @@
+resolved_at: '2026-03-23T18:05:08'
+input_fastq: /home/jeonina/BSMN_pipeline_ij/data/NA12878/NA12878.chr22_R1.fastq.gz
+sequencer: HiSeq
+bwa_threads: 4
+sort_threads: 4
+sort_memory: 798MB
+optical_duplicate_pixel_distance: 100
+bqsr_memory_gb: 2
+markdup_memory: 2G

@@ -14,8 +14,8 @@ stage: "calling"
 # -- Reference genome ---------------------------------------------------------
 ref:
   build: "hg38"                # hg38 | hg19 | b37
-  fasta: "resources/hg38/Homo_sapiens_assembly38.fasta"
-  dict:  "resources/hg38/Homo_sapiens_assembly38.dict"
+  fasta: "resources/hg38/chr22.fasta"
+  dict:  "resources/hg38/chr22.dict"
 
 # -- Known sites (for BQSR) ---------------------------------------------------
 known_sites:

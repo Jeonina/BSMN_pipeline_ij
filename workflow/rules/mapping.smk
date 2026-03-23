@@ -230,6 +230,6 @@ rule samtools_flagstat:
         """
         apptainer exec {params.samtools_sif} samtools flagstat \
             -@ {threads} \
-            --reference {params.ref} \
+            --input-fmt-option reference={params.ref} \
             {input.cram} > {output.flagstat} 2> {log}
         """
