@@ -20,10 +20,8 @@ import os
 # Safe reference to filtering config (rules parsed even when stage != filtering)
 _filtering = config.get("filtering", {})
 
-# Absolute path to scripts/ directory (works regardless of --directory argument)
-_SCRIPTS = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
-)
+# Absolute path to scripts/ directory (snakemake is always run from project root)
+_SCRIPTS = os.path.abspath("scripts")
 
 
 rule accessibility_filter:
