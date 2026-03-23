@@ -37,7 +37,11 @@ rule mutect2_scatter:
         f1r2=temp("results/calling/{sample}/scatter/{chrom}.f1r2.tar.gz"),
     params:
         ref=REF,
-        germline=_calling.get("germline_resource", ""),
+        germline_flag=(
+            f"--germline-resource {_calling.get('germline_resource', '')}"
+            if _calling.get("germline_resource", "")
+            else ""
+        ),
         pon_flag=lambda wildcards: (
             f"--panel-of-normals {_calling.get('pon', {}).get('vcf', '')}"
             if _calling.get("pon", {}).get("use", False)
@@ -62,12 +66,11 @@ rule mutect2_scatter:
             -R {params.ref} \
             -I {input.cram} \
             --tumor-sample {wildcards.sample} \
-            --germline-resource {params.germline} \
+            {params.germline_flag} \
             {params.pon_flag} \
             -L {wildcards.chrom} \
             --f1r2-tar-gz {output.f1r2} \
             -O {output.vcf} \
-            --stats {output.stats} \
             {params.extra} 2> {log}
         rm -rf {params.tmpdir}
         """
@@ -166,6 +169,7 @@ rule get_pileup_summaries:
     params:
         ref=REF,
         variants=_calling.get("contamination_resource", ""),
+        intervals=" ".join(f"-L {c}" for c in CHROMOSOMES),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
         "logs/calling/{sample}/get_pileup_summaries.log",
@@ -180,7 +184,7 @@ rule get_pileup_summaries:
             -R {params.ref} \
             -I {input.cram} \
             -V {params.variants} \
-            -L {params.variants} \
+            {params.intervals} \
             -O {output.table} 2> {log}
         """
 

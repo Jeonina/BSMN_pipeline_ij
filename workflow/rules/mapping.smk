@@ -203,6 +203,7 @@ rule apply_bqsr:
             -O /dev/stdout \
         | apptainer exec {params.samtools_sif} samtools view \
             -@ {threads} -C -T {params.ref} \
+            --output-fmt-option version=3.0 \
             -o {output.cram} -) 2> {log}
         apptainer exec {params.samtools_sif} \
             samtools index {output.cram} 2>> {log}
