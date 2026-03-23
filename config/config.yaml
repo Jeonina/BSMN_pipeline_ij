@@ -34,14 +34,43 @@ mapping:
 # -- Mutect2 calling parameters -----------------------------------------------
 calling:
   caller: "mutect2"              # mutect2 (haplotypecaller planned)
-  scatter_count: 24              # number of intervals for scattering (chromosomes)
+
+  # Chromosomes for scatter-gather (one Mutect2 job per entry)
+  chromosomes:
+    - chr1
+    - chr2
+    - chr3
+    - chr4
+    - chr5
+    - chr6
+    - chr7
+    - chr8
+    - chr9
+    - chr10
+    - chr11
+    - chr12
+    - chr13
+    - chr14
+    - chr15
+    - chr16
+    - chr17
+    - chr18
+    - chr19
+    - chr20
+    - chr21
+    - chr22
+    - chrX
+    - chrY
+
   germline_resource: "resources/hg38/af-only-gnomad.hg38.vcf.gz"
   contamination_resource: "resources/hg38/small_exac_common_3.hg38.vcf.gz"
-  # Panel of Normals (optional)
+
+  # Panel of Normals (optional — set use: true and provide vcf path)
   pon:
     use: false
-    vcf: ""                      # path to pre-built PON VCF, or leave empty to build
-  # Extra GATK flags
+    vcf: ""                      # path to pre-built PON VCF
+
+  # Extra GATK flags (appended verbatim)
   mutect2_extra: ""
   filter_extra: "--min-reads-per-strand 1"
 

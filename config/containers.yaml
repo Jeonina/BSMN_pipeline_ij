@@ -1,0 +1,41 @@
+# =============================================================================
+# Container specifications for BSMN mapping pipeline
+# All tools run via Apptainer (Singularity-compatible).
+# SIF files are stored under containers/ and auto-pulled if absent.
+# =============================================================================
+
+bwa:
+  name: bwa
+  version: v0.7.17
+  uri: docker://biocontainers/bwa:v0.7.17
+  sif: containers/bwa_0.7.17.sif
+
+sambamba:
+  name: sambamba
+  version: v0.8.2
+  uri: docker://quay.io/biocontainers/sambamba:0.8.2--h98b6b92_2
+  sif: containers/sambamba_0.8.2.sif
+
+picard:
+  name: picard
+  version: v3.1.1
+  uri: docker://broadinstitute/picard:3.1.1
+  sif: containers/picard_3.1.1.sif
+
+gatk:
+  name: gatk
+  version: v4.4.0.0
+  uri: docker://broadinstitute/gatk:4.4.0.0
+  sif: containers/gatk_4.4.0.0.sif
+
+samtools:
+  name: samtools
+  version: v1.17
+  uri: docker://biocontainers/samtools:v1.17
+  sif: containers/samtools_1.17.sif
+
+bcftools:
+  name: bcftools
+  version: v1.17
+  uri: docker://biocontainers/bcftools:v1.17
+  sif: containers/bcftools_1.17.sif
