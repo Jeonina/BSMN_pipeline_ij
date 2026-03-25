@@ -1,6 +1,8 @@
 # =============================================================================
-# BSMN Somatic Variant Calling Pipeline - Configuration
+# BSMN Somatic Variant Calling Pipeline - Configuration (Production)
 # =============================================================================
+# For chr22 validation runs use: config/config.validation.yaml
+#   snakemake --configfile config/config.validation.yaml ...
 
 # -- Sample information -------------------------------------------------------
 samples: config/samples.tsv
@@ -13,9 +15,9 @@ stage: "mapping"
 
 # -- Reference genome ---------------------------------------------------------
 ref:
-  build: "hg38"                # hg38 | hg19 | b37
-  fasta: "resources/hg38/chr22.fasta"
-  dict:  "resources/hg38/chr22.dict"
+  build: "hg38"
+  fasta: "resources/hg38/Homo_sapiens_assembly38.fasta"
+  dict:  "resources/hg38/Homo_sapiens_assembly38.dict"
 
 # -- Known sites (for BQSR) ---------------------------------------------------
 known_sites:
@@ -25,10 +27,10 @@ known_sites:
 
 # -- Mapping parameters -------------------------------------------------------
 mapping:
-  bwa_threads: 2
-  sort_threads: 1
-  sort_memory: "256M"            # per-thread memory for sambamba sort
-  markdup_memory: "1G"
+  bwa_threads: 16
+  sort_threads: 4
+  sort_memory: "4GB"             # per-thread memory for sambamba sort
+  markdup_memory: "16G"
   output_format: "cram"          # cram | bam
 
 # -- Mutect2 calling parameters -----------------------------------------------
@@ -36,16 +38,34 @@ calling:
   caller: "mutect2"              # mutect2 (haplotypecaller planned)
 
   # Chromosomes for scatter-gather (one Mutect2 job per entry)
-  # NOTE: chr22-only for validation run; restore full list for production
   chromosomes:
+    - chr1
+    - chr2
+    - chr3
+    - chr4
+    - chr5
+    - chr6
+    - chr7
+    - chr8
+    - chr9
+    - chr10
+    - chr11
+    - chr12
+    - chr13
+    - chr14
+    - chr15
+    - chr16
+    - chr17
+    - chr18
+    - chr19
+    - chr20
+    - chr21
     - chr22
+    - chrX
+    - chrY
 
-  # NOTE: af-only-gnomad not available locally; using empty string disables germline prior
-  # For production: set to resources/hg38/af-only-gnomad.hg38.vcf.gz
-  germline_resource: ""
-  # NOTE: using 1000G SNPs as contamination resource substitute for validation
-  # For production: set to resources/hg38/small_exac_common_3.hg38.vcf.gz
-  contamination_resource: "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
+  germline_resource: "resources/hg38/af-only-gnomad.hg38.vcf.gz"
+  contamination_resource: "resources/hg38/small_exac_common_3.hg38.vcf.gz"
 
   # Panel of Normals (optional — set use: true and provide vcf path)
   pon:

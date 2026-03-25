@@ -1,0 +1,75 @@
+# =============================================================================
+# BSMN Somatic Variant Calling Pipeline - Validation Config (chr22 / low RAM)
+# =============================================================================
+# Use this config for local validation runs against chr22 subset.
+# Requires ~4 GB RAM (vs ~6 GB for full hg38 in config.yaml).
+#
+# Usage:
+#   snakemake --snakefile workflow/Snakefile \
+#             --configfile config/config.validation.yaml \
+#             --cores 4
+
+# -- Sample information -------------------------------------------------------
+samples: config/samples.tsv
+
+# -- Pipeline stage to run ----------------------------------------------------
+stage: "mapping"
+
+# -- Reference genome (chr22 only) -------------------------------------------
+ref:
+  build: "hg38"
+  fasta: "resources/hg38/chr22.fasta"
+  dict:  "resources/hg38/chr22.dict"
+
+# -- Known sites (full hg38 — works with chr22 reads) -------------------------
+known_sites:
+  dbsnp:   "resources/hg38/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
+  mills:   "resources/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
+  indels:  "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
+
+# -- Mapping parameters (conservative for low-RAM environments) ---------------
+mapping:
+  bwa_threads: 2
+  sort_threads: 1
+  sort_memory: "256M"
+  markdup_memory: "2G"
+  output_format: "cram"
+
+# -- Mutect2 calling parameters (chr22 only) ----------------------------------
+calling:
+  caller: "mutect2"
+  chromosomes:
+    - chr22
+
+  # Substitutes for production resources not available locally
+  germline_resource: ""
+  contamination_resource: "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
+
+  pon:
+    use: false
+    vcf: ""
+
+  mutect2_extra: ""
+  filter_extra: "--min-reads-per-strand 1"
+
+# -- Filtering parameters -----------------------------------------------------
+filtering:
+  gnomad:
+    snps: "resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
+    af_threshold: 0.001
+
+  vaf:
+    min_alt_count: 5
+    p_binom_threshold: 1.0e-6
+
+  pon_mask:
+    fasta: "resources/PON.q20q20.05.5.fa"
+
+  mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
+
+# -- Resources ----------------------------------------------------------------
+resources:
+  default:
+    mem_mb: 4000
+    threads: 1
+    runtime: 120
