@@ -7,7 +7,7 @@
 bwa:
   name: bwa
   version: v0.7.17
-  uri: docker://biocontainers/bwa:v0.7.17
+  uri: docker://staphb/bwa:0.7.17
   sif: containers/bwa_0.7.17.sif
 
 sambamba:
@@ -21,6 +21,7 @@ picard:
   version: v3.1.1
   uri: docker://broadinstitute/picard:3.1.1
   sif: containers/picard_3.1.1.sif
+  jar: /usr/picard/picard.jar
 
 gatk:
   name: gatk
@@ -31,11 +32,11 @@ gatk:
 samtools:
   name: samtools
   version: v1.17
-  uri: docker://biocontainers/samtools:v1.17
+  uri: docker://staphb/samtools:1.17
   sif: containers/samtools_1.17.sif
 
 bcftools:
   name: bcftools
   version: v1.17
-  uri: docker://biocontainers/bcftools:v1.17
+  uri: docker://staphb/bcftools:1.17
   sif: containers/bcftools_1.17.sif
