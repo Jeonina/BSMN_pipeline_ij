@@ -104,6 +104,7 @@ rule mark_duplicates:
         odpd=RESOLVED["optical_duplicate_pixel_distance"],
         tmpdir="results/mapping/{sample}/tmp",
         picard_sif=CONTAINERS["picard"]["sif"],
+        picard_jar=CONTAINERS["picard"]["jar"],
     log:
         "logs/mapping/{sample}/mark_duplicates.log",
     threads: 1
@@ -116,8 +117,8 @@ rule mark_duplicates:
         """
         mkdir -p {params.tmpdir}
         apptainer exec {params.picard_sif} \
-            picard -Xmx{params.java_mem} -Djava.io.tmpdir={params.tmpdir} \
-            MarkDuplicates \
+            java -Xmx{params.java_mem} -Djava.io.tmpdir={params.tmpdir} \
+            -jar {params.picard_jar} MarkDuplicates \
             -I {input.bam} \
             -O {output.bam} \
             -METRICS_FILE {output.metrics} \

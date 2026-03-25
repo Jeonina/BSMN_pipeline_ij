@@ -1,9 +1,16 @@
-resolved_at: '2026-03-23T18:05:08'
-input_fastq: /home/jeonina/BSMN_pipeline_ij/data/NA12878/NA12878.chr22_R1.fastq.gz
-sequencer: HiSeq
+resolved_at: '2026-03-25T15:02:51'
+input_fastq: /home/jeonina/BSMN_pipeline_ij/tests/data/sample_R1.fastq.gz
+sequencer: Unknown
+sequencer_evidence:
+  instrument_id: ERR194146.1
+  colon_fields: 1
+  flowcell_id: ''
+  read_name_example: ERR194146.1
+  detection_method: unknown_fallback
+  note: Instrument 'ERR194146.1' not recognized; defaulting to ODPD=100 (conservative)
 bwa_threads: 4
 sort_threads: 4
-sort_memory: 798MB
+sort_memory: 765MB
 optical_duplicate_pixel_distance: 100
-bqsr_memory_gb: 2
+bqsr_memory_gb: 4
 markdup_memory: 2G

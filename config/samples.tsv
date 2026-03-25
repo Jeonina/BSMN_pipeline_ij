@@ -1,2 +1,2 @@
 sample_id	readgroup	fq1	fq2
-NA12878	ERR194147	/home/jeonina/BSMN_pipeline_ij/data/NA12878/NA12878.chr22_R1.fastq.gz	/home/jeonina/BSMN_pipeline_ij/data/NA12878/NA12878.chr22_R2.fastq.gz
+SAMPLE	ERR194146	/home/jeonina/BSMN_pipeline_ij/tests/data/sample_R1.fastq.gz	/home/jeonina/BSMN_pipeline_ij/tests/data/sample_R2.fastq.gz

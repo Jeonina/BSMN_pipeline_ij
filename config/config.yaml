@@ -9,7 +9,7 @@ samples: config/samples.tsv
 
 # -- Pipeline stage to run ----------------------------------------------------
 # Options: "mapping", "calling", "filtering", "all"
-stage: "calling"
+stage: "mapping"
 
 # -- Reference genome ---------------------------------------------------------
 ref:
