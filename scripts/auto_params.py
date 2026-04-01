@@ -175,10 +175,10 @@ def get_bwa_threads() -> int:
 
 
 def get_sort_memory() -> str:
-    """Return sambamba sort memory: 30% of available RAM, min 512 MB."""
+    """Return sambamba sort memory: 30% of available RAM, min 512 MB, max 8 GB."""
     try:
         avail_mb: int = psutil.virtual_memory().available >> 20
-        sort_mb = max(512, int(avail_mb * 0.30))
+        sort_mb = max(512, min(int(avail_mb * 0.30), 8192))
         return f"{sort_mb}MB"
     except Exception:
         return "6GB"
