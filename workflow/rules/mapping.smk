@@ -26,14 +26,14 @@ rule bwa_mem_sort:
     params:
         ref=REF,
         rg=r"@RG\tID:{sample}.{rg}\tSM:{sample}\tPL:illumina\tLB:{sample}\tPU:{rg}",
-        bwa_threads=RESOLVED["bwa_threads"],
-        sort_threads=RESOLVED["sort_threads"],
+        bwa_threads=lambda wildcards, threads: threads,
+        sort_threads=lambda wildcards, threads: max(2, threads // 4),
         sort_memory=RESOLVED["sort_memory"],
         bwa_sif=CONTAINERS["bwa"]["sif"],
         sambamba_sif=CONTAINERS["sambamba"]["sif"],
     log:
         "logs/mapping/{sample}/bwa_mem_sort.{rg}.log",
-    threads: RESOLVED["bwa_threads"]
+    threads: max(4, workflow.cores // 2)
     resources:
         mem_mb=lambda wildcards, threads: threads * 3000,
         runtime=1440,
@@ -64,7 +64,7 @@ rule merge_bams:
         samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
         "logs/mapping/{sample}/merge_bams.log",
-    threads: 2
+    threads: max(2, workflow.cores // 8)
     resources:
         mem_mb=2000,
         runtime=720,
@@ -188,7 +188,7 @@ rule apply_bqsr:
         samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
         "logs/mapping/{sample}/apply_bqsr.log",
-    threads: 2
+    threads: max(2, workflow.cores // 8)
     resources:
         mem_mb=lambda wildcards: RESOLVED["bqsr_memory_gb"] * 1024 + 1024,
         runtime=1440,
@@ -224,7 +224,7 @@ rule samtools_flagstat:
         samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
         "logs/mapping/{sample}/flagstat.log",
-    threads: 1
+    threads: min(4, max(1, workflow.cores // 16))
     resources:
         mem_mb=1000,
         runtime=60,

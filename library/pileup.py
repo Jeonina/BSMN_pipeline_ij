@@ -62,12 +62,12 @@ def pileup(bam, min_MQ, min_BQ, target):
         result = target.send((bases, quals))
 
 def bases_clean(bases):
-    bases = re.sub('\^.', '', bases)
-    bases = re.sub('\$', '', bases)
-    for n in set(re.findall('-(\d+)', bases)):
-        bases = re.sub('-{0}[ACGTNacgtn]{{{0}}}'.format(n), '', bases)
-    for n in set(re.findall('\+(\d+)', bases)):
-        bases = re.sub('\+{0}[ACGTNacgtn]{{{0}}}'.format(n), '', bases)
+    bases = re.sub(r'\^.', '', bases)
+    bases = re.sub(r'\$', '', bases)
+    for n in set(re.findall(r'-(\d+)', bases)):
+        bases = re.sub(r'-{0}[ACGTNacgtn]{{{0}}}'.format(n), '', bases)
+    for n in set(re.findall(r'\+(\d+)', bases)):
+        bases = re.sub(r'\+{0}[ACGTNacgtn]{{{0}}}'.format(n), '', bases)
     return bases
 
 @coroutine
@@ -92,5 +92,5 @@ def base_qual():
     result = None
     while True:
         bases, quals = (yield result)
-        bases = re.sub('\*', '', bases)
+        bases = re.sub(r'\*', '', bases)
         result = list(map(lambda b, q: (b.upper(), ord(q)-33), bases, quals))
