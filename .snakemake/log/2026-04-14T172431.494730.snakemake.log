@@ -1,0 +1,48 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 80
+Rules claiming more threads will be scaled down.
+Job stats:
+job                  count    min threads    max threads
+-----------------  -------  -------------  -------------
+all                      1              1              1
+apply_bqsr               1             10             10
+base_recalibrator        1              1              1
+bwa_mem_sort             1             40             40
+mark_duplicates          1              1              1
+merge_bams               1             10             10
+samtools_flagstat        1              4              4
+total                    7              1             40
+
+Select jobs to execute...
+
+[Tue Apr 14 17:24:32 2026]
+rule bwa_mem_sort:
+    input: /home/koon0324/BSMN_pipeline/ERR194146_1.fastq.gz, /home/koon0324/BSMN_pipeline/ERR194146_2.fastq.gz
+    output: results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam, results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam.bai
+    log: logs/mapping/SAMPLE/bwa_mem_sort.ERR194146.log
+    jobid: 4
+    reason: Missing output files: results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam; Set of input files has changed since last execution
+    wildcards: sample=SAMPLE, rg=ERR194146
+    threads: 40
+    resources: tmpdir=/tmp, mem_mb=120000, runtime=1440
+
+[Tue Apr 14 21:30:53 2026]
+Error in rule bwa_mem_sort:
+    jobid: 4
+    input: /home/koon0324/BSMN_pipeline/ERR194146_1.fastq.gz, /home/koon0324/BSMN_pipeline/ERR194146_2.fastq.gz
+    output: results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam, results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam.bai
+    log: logs/mapping/SAMPLE/bwa_mem_sort.ERR194146.log (check log file(s) for error message)
+    shell:
+        
+        mkdir -p $(dirname results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam)
+        (apptainer exec containers/bwa_0.7.17.sif bwa mem             -M -t 40             -R '@RG\tID:SAMPLE.ERR194146\tSM:SAMPLE\tPL:illumina\tLB:SAMPLE\tPU:ERR194146'             resources/hg38/Homo_sapiens_assembly38.fasta '/home/koon0324/BSMN_pipeline/ERR194146_1.fastq.gz' '/home/koon0324/BSMN_pipeline/ERR194146_2.fastq.gz'         | apptainer exec containers/sambamba_0.8.2.sif sambamba view             -S -f bam -l 0 /dev/stdin         | apptainer exec containers/sambamba_0.8.2.sif sambamba sort             -m 8192MB -t 10             -o results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam /dev/stdin) 2> logs/mapping/SAMPLE/bwa_mem_sort.ERR194146.log
+        
+        (one of the commands exited with non-zero exit code; note that snakemake uses bash strict mode!)
+
+Removing output files of failed job bwa_mem_sort since they might be corrupted:
+results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam, results/mapping/SAMPLE/align/SAMPLE.ERR194146.sorted.bam.bai
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look above for error message
+Complete log: .snakemake/log/2026-04-14T172431.494730.snakemake.log
