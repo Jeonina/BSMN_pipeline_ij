@@ -21,11 +21,16 @@ Usage:
 """
 
 import argparse
+import logging
 import math
+import os
 import re
 import subprocess
 import sys
+import time
 from typing import Dict, Tuple
+
+log = logging.getLogger("vaf_filter")
 
 
 def binom_pvalue(alt_n: int, depth: int) -> float:
@@ -104,7 +109,11 @@ def pileup_base_counts(
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        log.warning(
+            "mpileup failed at %s:%s — returncode=%d stderr=%s",
+            chrom, pos, e.returncode, (e.stderr or "").strip(),
+        )
         return 0, {}
 
     parts = result.stdout.strip().split()
@@ -133,20 +142,30 @@ def filter_variants(
     p_threshold: float = 1e-6,
     min_alt: int = 5,
     outfile=None,
-) -> None:
+) -> dict:
     """Filter text-format variant file by VAF criteria.
 
     Input format: chrom  pos  ref  alt  (tab-separated, one variant per line)
+    Returns a dict with filtering statistics.
     """
     if outfile is None:
         outfile = sys.stdout
+
+    stats = {
+        "input": 0, "kept": 0,
+        "removed_low_alt": 0, "removed_pvalue": 0,
+        "removed_no_coverage": 0, "skipped": 0,
+        "depths": [], "vafs": [],
+    }
 
     for line in txt_file:
         if line.startswith("#"):
             continue
         parts = line.rstrip("\n").split("\t")
         if len(parts) < 4:
+            stats["skipped"] += 1
             continue
+        stats["input"] += 1
         chrom, pos, _ref_base, alt = parts[0], parts[1], parts[2], parts[3]
 
         depth, counts = pileup_base_counts(
@@ -155,8 +174,39 @@ def filter_variants(
         alt_up = alt.upper()
         alt_n = counts.get(alt_up, 0) + counts.get(alt_up.lower(), 0)
 
-        if passes_vaf_filter(alt_n, depth, p_threshold, min_alt):
+        if depth == 0:
+            stats["removed_no_coverage"] += 1
+            log.debug(
+                "REMOVED no_coverage: %s:%s %s>%s depth=0", chrom, pos, _ref_base, alt
+            )
+            continue
+
+        pval = binom_pvalue(alt_n, depth)
+        vaf = alt_n / depth if depth > 0 else 0.0
+
+        if alt_n < min_alt:
+            stats["removed_low_alt"] += 1
+            log.debug(
+                "REMOVED low_alt: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
+                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval,
+            )
+        elif pval >= p_threshold:
+            stats["removed_pvalue"] += 1
+            log.debug(
+                "REMOVED high_pvalue: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e (>%.1e)",
+                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval, p_threshold,
+            )
+        else:
+            stats["kept"] += 1
+            stats["depths"].append(depth)
+            stats["vafs"].append(vaf)
+            log.debug(
+                "KEPT: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
+                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval,
+            )
             outfile.write(line)
+
+    return stats
 
 
 def main() -> None:
@@ -186,7 +236,32 @@ def main() -> None:
                         help="Number of threads (reserved for future parallelism)")
     args = parser.parse_args()
 
-    filter_variants(
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        stream=sys.stderr,
+    )
+
+    log.info("================================================================")
+    log.info("START vaf_filter")
+    log.info("input_file=%s", args.infile.name)
+    log.info("cram=%s", args.cram)
+    log.info("cram_size=%s bytes",
+             os.path.getsize(args.cram) if os.path.exists(args.cram) else "N/A")
+    log.info("ref=%s", args.ref)
+    log.info("samtools_sif=%s", args.samtools_sif)
+    log.info("parameters:")
+    log.info("  min_mapq=%d", args.min_mapq)
+    log.info("  min_baseq=%d", args.min_baseq)
+    log.info("  p_binom_threshold=%.1e", args.p_threshold)
+    log.info("  min_alt_count=%d", args.min_alt)
+    log.info("  threads=%d", args.threads)
+    log.info("criterion: binom_test(alt, depth, p=0.5, alt='less') < %.1e AND alt >= %d",
+             args.p_threshold, args.min_alt)
+    log.info("================================================================")
+
+    t0 = time.time()
+    stats = filter_variants(
         args.infile,
         args.cram,
         args.ref,
@@ -197,6 +272,36 @@ def main() -> None:
         args.min_alt,
     )
     sys.stdout.flush()
+    elapsed = time.time() - t0
+
+    total_removed = (
+        stats["removed_low_alt"] + stats["removed_pvalue"] + stats["removed_no_coverage"]
+    )
+
+    log.info("================================================================")
+    log.info("RESULTS:")
+    log.info("  variants_input=%d", stats["input"])
+    log.info("  variants_kept=%d", stats["kept"])
+    log.info("  variants_removed=%d", total_removed)
+    log.info("    removed_low_alt=%d (alt < %d)", stats["removed_low_alt"], args.min_alt)
+    log.info("    removed_high_pvalue=%d (p >= %.1e)", stats["removed_pvalue"], args.p_threshold)
+    log.info("    removed_no_coverage=%d", stats["removed_no_coverage"])
+    log.info("  lines_skipped=%d (malformed)", stats["skipped"])
+    if stats["input"] > 0:
+        log.info("  pass_rate=%.1f%%", stats["kept"] / stats["input"] * 100)
+    if stats["depths"]:
+        log.info("  kept_depth: min=%d median=%d max=%d",
+                 min(stats["depths"]),
+                 sorted(stats["depths"])[len(stats["depths"]) // 2],
+                 max(stats["depths"]))
+    if stats["vafs"]:
+        log.info("  kept_vaf: min=%.4f median=%.4f max=%.4f",
+                 min(stats["vafs"]),
+                 sorted(stats["vafs"])[len(stats["vafs"]) // 2],
+                 max(stats["vafs"]))
+    log.info("  elapsed=%.1f seconds", elapsed)
+    log.info("END vaf_filter")
+    log.info("================================================================")
 
 
 if __name__ == "__main__":

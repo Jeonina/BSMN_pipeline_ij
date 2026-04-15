@@ -205,6 +205,26 @@ def get_markdup_memory_gb() -> int:
         return 8
 
 
+def get_gatk_memory_gb() -> int:
+    """Return recommended Java heap for general GATK tools (MergeVcfs, etc.).
+
+    Smaller than BQSR: 1/4 of total RAM, min 4 GB, max 32 GB.
+    """
+    try:
+        total_gb: int = psutil.virtual_memory().total >> 30
+        return max(4, min(total_gb // 4, 32))
+    except Exception:
+        return 8
+
+
+def get_total_memory_mb() -> int:
+    """Return total system memory in MB."""
+    try:
+        return psutil.virtual_memory().total >> 20
+    except Exception:
+        return 16384
+
+
 # ---------------------------------------------------------------------------
 # Main resolver
 # ---------------------------------------------------------------------------
@@ -220,17 +240,22 @@ def resolve_params(fastq_path: str, output_yaml: str) -> dict[str, Any]:
     bqsr_mem = get_bqsr_memory_gb()
     markdup_mem = get_markdup_memory_gb()
 
+    gatk_mem = get_gatk_memory_gb()
+
     params: dict[str, Any] = {
         "resolved_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "input_fastq": os.path.abspath(fastq_path),
         "sequencer": sequencer,
         "sequencer_evidence": evidence,
+        "system_total_memory_mb": get_total_memory_mb(),
+        "system_cpus": max(1, os.cpu_count() or 1),
         "bwa_threads": get_bwa_threads(),
         "sort_threads": min(4, get_bwa_threads()),
         "sort_memory": get_sort_memory(),
         "optical_duplicate_pixel_distance": get_optical_duplicate_pixel_distance(sequencer),
         "bqsr_memory_gb": bqsr_mem,
         "markdup_memory": f"{markdup_mem}G",
+        "gatk_memory_gb": gatk_mem,
     }
 
     out_dir = os.path.dirname(output_yaml)
@@ -276,14 +301,17 @@ def main() -> None:
     params = resolve_params(fastq_path, args.output)
     ev = params["sequencer_evidence"]
 
-    print(f"[auto_params] sequencer      : {params['sequencer']}")
-    print(f"[auto_params] detection      : {ev['detection_method']}")
-    print(f"[auto_params] instrument_id  : {ev['instrument_id']}")
-    print(f"[auto_params] bwa_threads    : {params['bwa_threads']}")
-    print(f"[auto_params] ODPD           : {params['optical_duplicate_pixel_distance']}")
-    print(f"[auto_params] bqsr_memory_gb : {params['bqsr_memory_gb']}")
-    print(f"[auto_params] markdup_memory : {params['markdup_memory']}")
-    print(f"[auto_params] saved to       → {args.output}")
+    print(f"[auto_params] sequencer        : {params['sequencer']}")
+    print(f"[auto_params] detection        : {ev['detection_method']}")
+    print(f"[auto_params] instrument_id    : {ev['instrument_id']}")
+    print(f"[auto_params] system_cpus      : {params['system_cpus']}")
+    print(f"[auto_params] system_memory_mb : {params['system_total_memory_mb']}")
+    print(f"[auto_params] bwa_threads      : {params['bwa_threads']}")
+    print(f"[auto_params] ODPD             : {params['optical_duplicate_pixel_distance']}")
+    print(f"[auto_params] bqsr_memory_gb   : {params['bqsr_memory_gb']}")
+    print(f"[auto_params] gatk_memory_gb   : {params['gatk_memory_gb']}")
+    print(f"[auto_params] markdup_memory   : {params['markdup_memory']}")
+    print(f"[auto_params] saved to         → {args.output}")
 
 
 if __name__ == "__main__":

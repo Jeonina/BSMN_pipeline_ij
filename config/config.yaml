@@ -87,6 +87,8 @@ filtering:
   vaf:
     min_alt_count: 5
     p_binom_threshold: 1.0e-6
+    min_mapq: 20
+    min_baseq: 20
 
   # C. PON mask
   pon_mask:

@@ -7,6 +7,9 @@
 #   3. vaf_filter            — binomial test p < 1e-6 AND alt_count >= 5
 #   4. pon_mask_filter       — IUPAC FASTA-based panel-of-normals mask
 #
+# Resources are dynamically allocated based on system capabilities
+# (via config/resolved_params.yaml from scripts/auto_params.py).
+#
 # DAG (per sample):
 #   results/calling/{sample}/{sample}.filtered.vcf.gz
 #       → accessibility_filter  → {sample}.accessible.txt (temp)
@@ -22,6 +25,9 @@ _filtering = config.get("filtering", {})
 
 # Absolute path to scripts/ directory (snakemake is always run from project root)
 _SCRIPTS = os.path.abspath("scripts")
+
+# Dynamic resource helpers
+_gatk_mem_gb = RESOLVED.get("gatk_memory_gb", 8)
 
 
 rule accessibility_filter:
@@ -45,11 +51,28 @@ rule accessibility_filter:
         "logs/filtering/{sample}/accessibility_filter.log",
     threads: 1
     resources:
-        mem_mb=8192,
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=480,
     shell:
         """
+        exec >> {log} 2>&1
+        echo "================================================================"
+        echo "[accessibility_filter] START $(date -Iseconds)"
+        echo "[accessibility_filter] sample={wildcards.sample}"
+        echo "[accessibility_filter] input.vcf={input.vcf}"
+        echo "[accessibility_filter] input.vcf.size=$(stat -c%s {input.vcf} 2>/dev/null || echo unknown) bytes"
+        echo "[accessibility_filter] mask={params.mask}"
+        echo "[accessibility_filter] mem_mb={resources.mem_mb}"
+        echo "[accessibility_filter] criterion: mask_base == 'P' (1KG accessible)"
+        echo "================================================================"
+
         mkdir -p $(dirname {output.txt})
+
+        # Count total PASS SNVs before filtering
+        _total_pass=$(apptainer exec {params.bcftools_sif} \
+            bcftools view -H -f PASS -v snps {input.vcf} | wc -l)
+        echo "[accessibility_filter] total_PASS_SNVs=$_total_pass"
+
         apptainer exec {params.bcftools_sif} \
             bcftools view -H -f PASS -v snps {input.vcf} \
             | cut -f1,2,4,5 \
@@ -61,7 +84,20 @@ rule accessibility_filter:
                 cmd | getline mask_base;
                 close(cmd);
                 if (mask_base == "P") print $1 "\\t" $2 "\\t" $3 "\\t" $4
-            }}' > {output.txt} 2> {log}
+            }}' > {output.txt}
+
+        _kept=$(wc -l < {output.txt})
+        _removed=$((_total_pass - _kept))
+
+        echo "================================================================"
+        echo "[accessibility_filter] variants_input=$_total_pass"
+        echo "[accessibility_filter] variants_kept=$_kept"
+        echo "[accessibility_filter] variants_removed=$_removed"
+        if [ "$_total_pass" -gt 0 ]; then
+            echo "[accessibility_filter] pass_rate=$(awk "BEGIN {{printf \\"%.1f\\", $_kept/$_total_pass*100}}")%"
+        fi
+        echo "[accessibility_filter] END $(date -Iseconds)"
+        echo "================================================================"
         """
 
 
@@ -77,12 +113,13 @@ rule germline_filter:
         txt=temp("results/filtering/{sample}/{sample}.germline_filtered.txt"),
     params:
         gnomad_snps=_filtering.get("gnomad", {}).get("snps", ""),
+        af_threshold=_filtering.get("gnomad", {}).get("af_threshold", 0.001),
         script=os.path.join(_SCRIPTS, "germline_filter.py"),
     log:
         "logs/filtering/{sample}/germline_filter.log",
     threads: 1
     resources:
-        mem_mb=4096,
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=120,
     shell:
         """
@@ -95,10 +132,9 @@ rule germline_filter:
 rule vaf_filter:
     """
     VAF filter: keep somatic candidates passing binomial test + min alt count.
-    Criterion: binom_test(alt_n, depth, p=0.5, alternative='less') < 1e-6
-               AND alt_n >= 5
-    Pileup performed directly on the sample CRAM via samtools mpileup
-    (mapping quality >= 20, base quality >= 20).
+    Criterion: binom_test(alt_n, depth, p=0.5, alternative='less') < p_threshold
+               AND alt_n >= min_alt
+    Pileup performed directly on the sample CRAM via samtools mpileup.
     """
     input:
         txt="results/filtering/{sample}/{sample}.germline_filtered.txt",
@@ -110,13 +146,15 @@ rule vaf_filter:
         ref=REF,
         p_threshold=_filtering.get("vaf", {}).get("p_binom_threshold", 1.0e-6),
         min_alt=_filtering.get("vaf", {}).get("min_alt_count", 5),
+        min_mapq=_filtering.get("vaf", {}).get("min_mapq", 20),
+        min_baseq=_filtering.get("vaf", {}).get("min_baseq", 20),
         samtools_sif=CONTAINERS["samtools"]["sif"],
         script=os.path.join(_SCRIPTS, "vaf_filter.py"),
     log:
         "logs/filtering/{sample}/vaf_filter.log",
-    threads: 4
+    threads: max(2, workflow.cores // 4)
     resources:
-        mem_mb=8192,
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=480,
     shell:
         """
@@ -124,8 +162,8 @@ rule vaf_filter:
             --cram {input.cram} \
             --ref {params.ref} \
             --samtools-sif {params.samtools_sif} \
-            --min-mapq 20 \
-            --min-baseq 20 \
+            --min-mapq {params.min_mapq} \
+            --min-baseq {params.min_baseq} \
             --p-threshold {params.p_threshold} \
             --min-alt {params.min_alt} \
             --threads {threads} \
@@ -156,7 +194,7 @@ rule pon_mask_filter:
         "logs/filtering/{sample}/pon_mask_filter.log",
     threads: 1
     resources:
-        mem_mb=4096,
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=120,
     shell:
         """
