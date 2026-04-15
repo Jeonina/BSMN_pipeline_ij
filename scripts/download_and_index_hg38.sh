@@ -157,7 +157,21 @@ else
 fi
 echo "[Step 3] Done."
 
-# ---- 4. File listing ------------------------------------------------------
+# ---- 4. Contamination resource (small_exac_common) -----------------------
+
+echo ""
+echo "[Step 4] Downloading contamination resource (small_exac_common)..."
+
+EXAC="small_exac_common_3.hg38.vcf.gz"
+BROAD_HTTP="https://storage.googleapis.com/gatk-best-practices/somatic-hg38"
+
+for suffix in "" ".tbi"; do
+  download_vcf "${EXAC}${suffix}" "$BROAD_HTTP/${EXAC}${suffix}"
+done
+
+echo "[Step 4] Done."
+
+# ---- 5. File listing ------------------------------------------------------
 
 echo ""
 echo "============================================="
