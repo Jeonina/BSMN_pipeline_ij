@@ -553,7 +553,7 @@ class TestSnakemakeDryRun:
             "bwa_mem_sort",
             "merge_bams",
             "mark_duplicates",
-            "base_recalibrator",
+            "gather_bqsr_reports",
             "apply_bqsr",
             "samtools_flagstat",
         ]

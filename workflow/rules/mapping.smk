@@ -129,30 +129,41 @@ rule mark_duplicates:
         """
 
 
-rule base_recalibrator:
-    """aln_5 step 1: GATK4 BaseRecalibrator"""
+rule base_recalibrator_scatter:
+    """
+    aln_5 step 1a: GATK4 BaseRecalibrator (per-chromosome scatter).
+    Runs in parallel across chromosomes for significantly faster execution.
+    """
     input:
         bam="results/mapping/{sample}/{sample}.markduped.bam",
         bai="results/mapping/{sample}/{sample}.markduped.bai",
     output:
-        table=temp("results/mapping/{sample}/recal_data.table"),
+        table=temp("results/mapping/{sample}/bqsr_scatter/{chrom}.recal.table"),
     params:
         ref=REF,
         dbsnp=config["known_sites"]["dbsnp"],
         mills=config["known_sites"]["mills"],
         indels=config["known_sites"]["indels"],
-        tmpdir="results/mapping/{sample}/tmp",
-        bqsr_mem=RESOLVED["bqsr_memory_gb"],
+        tmpdir="results/mapping/{sample}/tmp/bqsr_{chrom}",
+        bqsr_mem=RESOLVED.get("gatk_memory_gb", 8),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
-        "logs/mapping/{sample}/base_recalibrator.log",
+        "logs/mapping/{sample}/base_recalibrator.{chrom}.log",
     threads: 1
     resources:
-        mem_mb=lambda wildcards: RESOLVED["bqsr_memory_gb"] * 1024 + 512,
+        mem_mb=lambda wildcards: RESOLVED.get("gatk_memory_gb", 8) * 1024 + 512,
         runtime=1440,
     shell:
         """
-        mkdir -p {params.tmpdir}
+        exec >> {log} 2>&1
+        echo "================================================================"
+        echo "[base_recalibrator_scatter] START $(date -Iseconds)"
+        echo "[base_recalibrator_scatter] sample={wildcards.sample} chrom={wildcards.chrom}"
+        echo "[base_recalibrator_scatter] input.bam={input.bam}"
+        echo "[base_recalibrator_scatter] java_heap={params.bqsr_mem}G"
+        echo "================================================================"
+
+        mkdir -p $(dirname {output.table}) {params.tmpdir}
         apptainer exec {params.gatk_sif} \
             gatk --java-options "-Xmx{params.bqsr_mem}G -Djava.io.tmpdir={params.tmpdir}" \
             BaseRecalibrator \
@@ -161,8 +172,54 @@ rule base_recalibrator:
             --known-sites {params.mills} \
             --known-sites {params.indels} \
             -I {input.bam} \
-            -O {output.table} 2> {log}
+            -L {wildcards.chrom} \
+            -O {output.table}
+
+        echo "================================================================"
+        echo "[base_recalibrator_scatter] output.size=$(stat -c%s {output.table} 2>/dev/null || echo 0) bytes"
+        echo "[base_recalibrator_scatter] END $(date -Iseconds)"
+        echo "================================================================"
+
         rm -rf {params.tmpdir}
+        """
+
+
+rule gather_bqsr_reports:
+    """
+    aln_5 step 1b: Merge per-chromosome BQSR recalibration tables.
+    Uses GATK GatherBQSRReports to combine scatter results.
+    """
+    input:
+        tables=get_scattered_recal_tables,
+    output:
+        table=temp("results/mapping/{sample}/recal_data.table"),
+    params:
+        table_flags=lambda wildcards, input: " ".join(f"-I {t}" for t in input.tables),
+        gatk_sif=CONTAINERS["gatk"]["sif"],
+    log:
+        "logs/mapping/{sample}/gather_bqsr_reports.log",
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards: RESOLVED.get("gatk_memory_gb", 8) * 1024,
+        runtime=60,
+    shell:
+        """
+        exec >> {log} 2>&1
+        echo "================================================================"
+        echo "[gather_bqsr_reports] START $(date -Iseconds)"
+        echo "[gather_bqsr_reports] sample={wildcards.sample}"
+        echo "[gather_bqsr_reports] input_tables=$(echo {input.tables} | wc -w)"
+        echo "================================================================"
+
+        apptainer exec {params.gatk_sif} \
+            gatk GatherBQSRReports \
+            {params.table_flags} \
+            -O {output.table}
+
+        echo "================================================================"
+        echo "[gather_bqsr_reports] output.size=$(stat -c%s {output.table} 2>/dev/null || echo 0) bytes"
+        echo "[gather_bqsr_reports] END $(date -Iseconds)"
+        echo "================================================================"
         """
 
 

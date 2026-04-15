@@ -63,6 +63,17 @@ def get_sorted_bams(wildcards):
         rg=rgs,
     )
 
+# --- BQSR helpers -----------------------------------------------------------
+
+def get_scattered_recal_tables(wildcards):
+    """Return per-chromosome recalibration tables for a sample."""
+    return expand(
+        "results/mapping/{sample}/bqsr_scatter/{chrom}.recal.table",
+        sample=wildcards.sample,
+        chrom=CHROMOSOMES,
+    )
+
+
 # --- Calling helpers ---------------------------------------------------------
 
 def get_scattered_vcfs(wildcards):
