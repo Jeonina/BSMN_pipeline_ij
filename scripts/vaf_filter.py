@@ -28,7 +28,8 @@ import re
 import subprocess
 import sys
 import time
-from typing import Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple
 
 log = logging.getLogger("vaf_filter")
 
@@ -132,6 +133,45 @@ def pileup_base_counts(
     return depth, counts
 
 
+def _process_one(
+    line: str,
+    cram: str,
+    ref: str,
+    samtools_sif: str,
+    min_mapq: int,
+    min_baseq: int,
+    p_threshold: float,
+    min_alt: int,
+) -> dict:
+    """Process a single variant line. Called from worker threads."""
+    parts = line.rstrip("\n").split("\t")
+    chrom, pos, ref_base, alt = parts[0], parts[1], parts[2], parts[3]
+
+    depth, counts = pileup_base_counts(
+        cram, ref, chrom, pos, samtools_sif, min_mapq, min_baseq
+    )
+    alt_up = alt.upper()
+    alt_n = counts.get(alt_up, 0) + counts.get(alt_up.lower(), 0)
+    pval = binom_pvalue(alt_n, depth) if depth > 0 else 1.0
+    vaf = alt_n / depth if depth > 0 else 0.0
+
+    if depth == 0:
+        verdict = "no_coverage"
+    elif alt_n < min_alt:
+        verdict = "low_alt"
+    elif pval >= p_threshold:
+        verdict = "high_pvalue"
+    else:
+        verdict = "keep"
+
+    return {
+        "line": line,
+        "chrom": chrom, "pos": pos, "ref_base": ref_base, "alt": alt,
+        "depth": depth, "alt_n": alt_n, "pval": pval, "vaf": vaf,
+        "verdict": verdict,
+    }
+
+
 def filter_variants(
     txt_file,
     cram: str,
@@ -142,6 +182,7 @@ def filter_variants(
     p_threshold: float = 1e-6,
     min_alt: int = 5,
     outfile=None,
+    n_threads: int = 1,
 ) -> dict:
     """Filter text-format variant file by VAF criteria.
 
@@ -158,6 +199,8 @@ def filter_variants(
         "depths": [], "vafs": [],
     }
 
+    # Read all variant lines upfront (headers/malformed lines filtered here)
+    variants: List[str] = []
     for line in txt_file:
         if line.startswith("#"):
             continue
@@ -165,36 +208,39 @@ def filter_variants(
         if len(parts) < 4:
             stats["skipped"] += 1
             continue
-        stats["input"] += 1
-        chrom, pos, _ref_base, alt = parts[0], parts[1], parts[2], parts[3]
+        variants.append(line)
 
-        depth, counts = pileup_base_counts(
-            cram, ref, chrom, pos, samtools_sif, min_mapq, min_baseq
+    stats["input"] = len(variants)
+
+    def _worker(line: str) -> dict:
+        return _process_one(
+            line, cram, ref, samtools_sif,
+            min_mapq, min_baseq, p_threshold, min_alt,
         )
-        alt_up = alt.upper()
-        alt_n = counts.get(alt_up, 0) + counts.get(alt_up.lower(), 0)
 
-        if depth == 0:
+    # Run pileup calls in parallel; executor.map preserves input order
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
+        results = list(executor.map(_worker, variants))
+
+    for r in results:
+        verdict = r["verdict"]
+        chrom, pos, ref_base, alt = r["chrom"], r["pos"], r["ref_base"], r["alt"]
+        depth, alt_n, pval, vaf = r["depth"], r["alt_n"], r["pval"], r["vaf"]
+
+        if verdict == "no_coverage":
             stats["removed_no_coverage"] += 1
-            log.debug(
-                "REMOVED no_coverage: %s:%s %s>%s depth=0", chrom, pos, _ref_base, alt
-            )
-            continue
-
-        pval = binom_pvalue(alt_n, depth)
-        vaf = alt_n / depth if depth > 0 else 0.0
-
-        if alt_n < min_alt:
+            log.debug("REMOVED no_coverage: %s:%s %s>%s depth=0", chrom, pos, ref_base, alt)
+        elif verdict == "low_alt":
             stats["removed_low_alt"] += 1
             log.debug(
                 "REMOVED low_alt: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
-                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval,
+                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
             )
-        elif pval >= p_threshold:
+        elif verdict == "high_pvalue":
             stats["removed_pvalue"] += 1
             log.debug(
                 "REMOVED high_pvalue: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e (>%.1e)",
-                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval, p_threshold,
+                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval, p_threshold,
             )
         else:
             stats["kept"] += 1
@@ -202,9 +248,9 @@ def filter_variants(
             stats["vafs"].append(vaf)
             log.debug(
                 "KEPT: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
-                chrom, pos, _ref_base, alt, depth, alt_n, vaf, pval,
+                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
             )
-            outfile.write(line)
+            outfile.write(r["line"])
 
     return stats
 
@@ -233,7 +279,7 @@ def main() -> None:
     )
     parser.add_argument("--min-alt", type=int, default=5, dest="min_alt")
     parser.add_argument("--threads", type=int, default=1,
-                        help="Number of threads (reserved for future parallelism)")
+                        help="Number of parallel threads for samtools mpileup calls")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -270,6 +316,7 @@ def main() -> None:
         args.min_baseq,
         args.p_threshold,
         args.min_alt,
+        n_threads=args.threads,
     )
     sys.stdout.flush()
     elapsed = time.time() - t0
