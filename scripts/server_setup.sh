@@ -8,9 +8,13 @@
 #   bash scripts/server_setup.sh
 #
 # Requirements on server:
-#   - git, apptainer, conda (or mamba)
-#   - Internet access (for container pull)
-#   - resources/ already transferred via rsync (see sync_resources.sh)
+#   - git, apptainer, conda (or mamba), wget, samtools, lftp
+#   - Internet access (for resource download and container pull)
+#   - ~60 GB free disk space for resources/hg38/
+#
+# Resources are obtained in two ways:
+#   1. Public files — downloaded automatically by download_and_index_hg38.sh
+#   2. Custom files (gnomAD, PON) — assembled from downloads/ (git-tracked split parts)
 # =============================================================================
 set -euo pipefail
 
@@ -22,7 +26,7 @@ echo "[setup] Working directory: $REPO_DIR"
 # 1. Conda environment
 # ---------------------------------------------------------------------------
 echo ""
-echo "[1/3] Setting up conda environment..."
+echo "[1/5] Setting up conda environment..."
 
 if conda env list | grep -q "^bp "; then
     echo "  → conda env 'bp' already exists, skipping create"
@@ -40,17 +44,29 @@ conda activate bp
 # 2. Pull Apptainer containers
 # ---------------------------------------------------------------------------
 echo ""
-echo "[2/3] Pulling Apptainer containers..."
+echo "[2/5] Pulling Apptainer containers..."
 echo "  (This may take 10–30 minutes depending on network speed)"
 
 python3 scripts/prepare_containers.py config/containers.yaml
 echo "  → All containers ready"
 
 # ---------------------------------------------------------------------------
-# 3. Assemble split resource files
+# 3. Download public reference resources
 # ---------------------------------------------------------------------------
 echo ""
-echo "[3/4] Assembling split resource files..."
+echo "[3/5] Downloading public reference resources..."
+echo "  (This may take 1–3 hours depending on network speed)"
+echo "  Requires: wget, samtools, lftp"
+
+mkdir -p resources/hg38
+bash scripts/download_and_index_hg38.sh resources/hg38
+echo "  → Public resources downloaded"
+
+# ---------------------------------------------------------------------------
+# 4. Assemble split resource files
+# ---------------------------------------------------------------------------
+echo ""
+echo "[4/5] Assembling split resource files..."
 
 # gnomAD: cat parts → resources/hg38/
 GNOMAD_OUT="resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
@@ -85,10 +101,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Verify resources
+# 5. Verify resources
 # ---------------------------------------------------------------------------
 echo ""
-echo "[4/4] Verifying resources..."
+echo "[5/5] Verifying resources..."
 
 REQUIRED_FILES=(
     "resources/hg38/Homo_sapiens_assembly38.fasta"
@@ -117,8 +133,9 @@ done
 if [[ "$ALL_OK" == false ]]; then
     echo ""
     echo "[ERROR] Some resource files are missing."
-    echo "  Run sync_resources.sh from your LOCAL machine first:"
-    echo "  bash scripts/sync_resources.sh <SERVER_USER>@<SERVER_HOST>:<SERVER_PATH>"
+    echo "  Check that Step 3 (download) and Step 4 (assemble) completed without errors."
+    echo "  For custom files (gnomAD, PON), ensure downloads/ split parts are present:"
+    echo "    ls downloads/"
     echo "  Then re-run this script."
     exit 1
 fi

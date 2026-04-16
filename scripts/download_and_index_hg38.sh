@@ -163,15 +163,40 @@ echo ""
 echo "[Step 4] Downloading contamination resource (small_exac_common)..."
 
 EXAC="small_exac_common_3.hg38.vcf.gz"
-BROAD_HTTP="https://storage.googleapis.com/gatk-best-practices/somatic-hg38"
+BROAD_FTP="ftp://gsapubftp-anonymous@ftp.broadinstitute.org/bundle/Mutect2"
 
-for suffix in "" ".tbi"; do
-  download_vcf "${EXAC}${suffix}" "$BROAD_HTTP/${EXAC}${suffix}"
-done
+if [[ -f "$EXAC" && -f "${EXAC}.tbi" ]]; then
+  echo "  [SKIP] $EXAC already exists"
+else
+  echo "  Downloading $EXAC via FTP (requires lftp)..."
+  lftp -c "open ${BROAD_FTP}; get ${EXAC} -o ${EXAC}; get ${EXAC}.tbi -o ${EXAC}.tbi"
+fi
 
 echo "[Step 4] Done."
 
-# ---- 5. File listing ------------------------------------------------------
+# ---- 5. 1KG strict mask (mappability filter) ------------------------------
+
+echo ""
+echo "[Step 5] Downloading 1KG strict mask..."
+
+MASK_SRC="20160622_genome_mask_GRCh38.fa"
+MASK_GZ="${MASK_SRC}.gz"
+MASK_OUT="1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
+EBI_MASK="ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/${MASK_GZ}"
+
+if [[ -f "$MASK_OUT" ]]; then
+  echo "  [SKIP] $MASK_OUT already exists"
+else
+  echo "  Downloading 1KG strict mask from EBI..."
+  wget -c -q --show-progress -O "$MASK_GZ" "$EBI_MASK"
+  mv "$MASK_GZ" "$MASK_OUT"
+  echo "  Indexing with samtools faidx..."
+  samtools faidx "$MASK_OUT"
+fi
+
+echo "[Step 5] Done."
+
+# ---- 6. File listing ------------------------------------------------------
 
 echo ""
 echo "============================================="
