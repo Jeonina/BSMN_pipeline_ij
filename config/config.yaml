@@ -85,7 +85,7 @@ filtering:
 
   # B. VAF filter
   vaf:
-    min_alt_count: 3
+    min_alt_count: 5
     p_binom_threshold: 1.0e-6
     min_mapq: 20
     min_baseq: 20
