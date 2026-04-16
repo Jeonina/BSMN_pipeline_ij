@@ -47,10 +47,48 @@ python3 scripts/prepare_containers.py config/containers.yaml
 echo "  → All containers ready"
 
 # ---------------------------------------------------------------------------
-# 3. Verify resources
+# 3. Assemble split resource files
 # ---------------------------------------------------------------------------
 echo ""
-echo "[3/3] Verifying resources..."
+echo "[3/4] Assembling split resource files..."
+
+# gnomAD: cat parts → resources/hg38/
+GNOMAD_OUT="resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
+GNOMAD_PARTS=(
+    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partaa
+    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partab
+    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partac
+)
+if [[ ! -f "$GNOMAD_OUT" ]] || [[ $(stat -c%s "$GNOMAD_OUT") -lt 1000 ]]; then
+    echo "  → Assembling gnomAD..."
+    cat "${GNOMAD_PARTS[@]}" > "$GNOMAD_OUT"
+    echo "  ✓ $GNOMAD_OUT"
+else
+    echo "  ✓ $GNOMAD_OUT (already assembled)"
+fi
+
+# PON: cat parts → gunzip → resources/hg38/
+PON_OUT="resources/hg38/PON.q20q20.05.5.fa"
+PON_PARTS=(
+    downloads/PON.q20q20.05.5.fa.gz.partaa
+    downloads/PON.q20q20.05.5.fa.gz.partab
+    downloads/PON.q20q20.05.5.fa.gz.partac
+    downloads/PON.q20q20.05.5.fa.gz.partad
+)
+if [[ ! -f "$PON_OUT" ]]; then
+    echo "  → Assembling PON..."
+    cat "${PON_PARTS[@]}" | gunzip -c > "$PON_OUT"
+    samtools faidx "$PON_OUT"
+    echo "  ✓ $PON_OUT"
+else
+    echo "  ✓ $PON_OUT (already assembled)"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Verify resources
+# ---------------------------------------------------------------------------
+echo ""
+echo "[4/4] Verifying resources..."
 
 REQUIRED_FILES=(
     "resources/hg38/Homo_sapiens_assembly38.fasta"
@@ -62,6 +100,8 @@ REQUIRED_FILES=(
     "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
     "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
     "resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
+    "resources/hg38/PON.q20q20.05.5.fa"
+    "resources/hg38/PON.q20q20.05.5.fa.fai"
 )
 
 ALL_OK=true
@@ -79,6 +119,7 @@ if [[ "$ALL_OK" == false ]]; then
     echo "[ERROR] Some resource files are missing."
     echo "  Run sync_resources.sh from your LOCAL machine first:"
     echo "  bash scripts/sync_resources.sh <SERVER_USER>@<SERVER_HOST>:<SERVER_PATH>"
+    echo "  Then re-run this script."
     exit 1
 fi
 
