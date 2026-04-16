@@ -92,7 +92,7 @@ filtering:
 
   # C. PON mask
   pon_mask:
-    fasta: "resources/PON.q20q20.05.5.fa"
+    fasta: "resources/hg38/PON.q20q20.05.5.fa"
 
   # D. 1KG strict mask (mappability)
   mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
