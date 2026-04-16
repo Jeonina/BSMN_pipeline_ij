@@ -351,6 +351,11 @@ rule filter_mutect_calls:
     params:
         ref=REF,
         extra=_calling.get("filter_extra", ""),
+        germline_flag=(
+            f"--germline-resource {_calling.get('germline_resource', '')}"
+            if _calling.get("germline_resource", "")
+            else ""
+        ),
         java_mem=_gatk_mem_gb,
         tmpdir="results/calling/{sample}/tmp/filter",
         gatk_sif=CONTAINERS["gatk"]["sif"],
@@ -370,6 +375,7 @@ rule filter_mutect_calls:
         echo "[filter_mutect_calls] input.stats={input.stats}"
         echo "[filter_mutect_calls] input.orientation={input.orientation}"
         echo "[filter_mutect_calls] input.contamination={input.contamination}"
+        echo "[filter_mutect_calls] germline_flag={params.germline_flag}"
         echo "[filter_mutect_calls] java_heap={params.java_mem}G"
         echo "[filter_mutect_calls] extra_flags={params.extra}"
         echo "================================================================"
@@ -383,6 +389,7 @@ rule filter_mutect_calls:
             --stats {input.stats} \
             --ob-priors {input.orientation} \
             --contamination-table {input.contamination} \
+            {params.germline_flag} \
             {params.extra} \
             -O {output.vcf}
         _exit=$?

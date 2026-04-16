@@ -59,7 +59,7 @@ filtering:
     af_threshold: 0.001
 
   vaf:
-    min_alt_count: 5
+    min_alt_count: 3
     p_binom_threshold: 1.0e-6
 
   pon_mask:
