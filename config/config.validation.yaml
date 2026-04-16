@@ -65,7 +65,7 @@ filtering:
   pon_mask:
     fasta: "resources/PON.q20q20.05.5.fa"
 
-  mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
+  mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.bed"
 
 # -- Resources ----------------------------------------------------------------
 resources:

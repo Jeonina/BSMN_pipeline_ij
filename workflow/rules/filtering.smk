@@ -32,10 +32,9 @@ _gatk_mem_gb = RESOLVED.get("gatk_memory_gb", 8)
 
 rule accessibility_filter:
     """
-    Accessibility filter using the 1KG strict mask FASTA.
-    Extracts PASS SNVs from the Mutect2-filtered VCF, queries the
-    1KG mask with samtools faidx, and keeps only variants where
-    the mask base at the variant position is 'P' (accessible).
+    Accessibility filter using the 1KG strict mask BED.
+    Extracts PASS SNVs from the Mutect2-filtered VCF and keeps only
+    variants that fall within accessible regions in the BED file.
     Output: 4-column text (chrom  pos  ref  alt).
     """
     input:
@@ -44,13 +43,12 @@ rule accessibility_filter:
     output:
         txt=temp("results/filtering/{sample}/{sample}.accessible.txt"),
     params:
-        mask=_filtering.get("mask_1kg", ""),
-        samtools_sif=CONTAINERS["samtools"]["sif"],
+        bed=_filtering.get("mask_1kg", ""),
         bcftools_sif=CONTAINERS["bcftools"]["sif"],
         script=os.path.join(_SCRIPTS, "accessibility_filter.py"),
     log:
         "logs/filtering/{sample}/accessibility_filter.log",
-    threads: max(2, workflow.cores // 4)
+    threads: 1
     resources:
         mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=480,
@@ -61,18 +59,15 @@ rule accessibility_filter:
         echo "[accessibility_filter] START $(date -Iseconds)"
         echo "[accessibility_filter] sample={wildcards.sample}"
         echo "[accessibility_filter] input.vcf={input.vcf}"
-        echo "[accessibility_filter] mask={params.mask}"
-        echo "[accessibility_filter] threads={threads}"
+        echo "[accessibility_filter] bed={params.bed}"
         echo "================================================================"
 
         mkdir -p $(dirname {output.txt})
 
         python {params.script} \
             --vcf {input.vcf} \
-            --mask {params.mask} \
+            --bed {params.bed} \
             --bcftools-sif {params.bcftools_sif} \
-            --samtools-sif {params.samtools_sif} \
-            --threads {threads} \
             > {output.txt}
 
         _kept=$(wc -l < {output.txt})
