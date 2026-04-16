@@ -177,21 +177,16 @@ echo "[Step 4] Done."
 # ---- 5. 1KG strict mask (mappability filter) ------------------------------
 
 echo ""
-echo "[Step 5] Downloading 1KG strict mask..."
+echo "[Step 5] Downloading 1KG strict mask (BED)..."
 
-MASK_SRC="20160622_genome_mask_GRCh38.fa"
-MASK_GZ="${MASK_SRC}.gz"
-MASK_OUT="1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
-EBI_MASK="ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/${MASK_GZ}"
+MASK_OUT="1KG.20160622.strict_mask.hg38_GRCh38.bed"
+EBI_MASK="http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed"
 
 if [[ -f "$MASK_OUT" ]]; then
   echo "  [SKIP] $MASK_OUT already exists"
 else
   echo "  Downloading 1KG strict mask from EBI..."
-  wget -c -q --show-progress -O "$MASK_GZ" "$EBI_MASK"
-  mv "$MASK_GZ" "$MASK_OUT"
-  echo "  Indexing with samtools faidx..."
-  samtools faidx "$MASK_OUT"
+  wget -c -q --show-progress -O "$MASK_OUT" "$EBI_MASK"
 fi
 
 echo "[Step 5] Done."
