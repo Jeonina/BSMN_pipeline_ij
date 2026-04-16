@@ -47,9 +47,10 @@ rule accessibility_filter:
         mask=_filtering.get("mask_1kg", ""),
         samtools_sif=CONTAINERS["samtools"]["sif"],
         bcftools_sif=CONTAINERS["bcftools"]["sif"],
+        script=os.path.join(_SCRIPTS, "accessibility_filter.py"),
     log:
         "logs/filtering/{sample}/accessibility_filter.log",
-    threads: 1
+    threads: max(2, workflow.cores // 4)
     resources:
         mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=480,
@@ -60,42 +61,22 @@ rule accessibility_filter:
         echo "[accessibility_filter] START $(date -Iseconds)"
         echo "[accessibility_filter] sample={wildcards.sample}"
         echo "[accessibility_filter] input.vcf={input.vcf}"
-        echo "[accessibility_filter] input.vcf.size=$(stat -c%s {input.vcf} 2>/dev/null || echo unknown) bytes"
         echo "[accessibility_filter] mask={params.mask}"
-        echo "[accessibility_filter] mem_mb={resources.mem_mb}"
-        echo "[accessibility_filter] criterion: mask_base == 'P' (1KG accessible)"
+        echo "[accessibility_filter] threads={threads}"
         echo "================================================================"
 
         mkdir -p $(dirname {output.txt})
 
-        # Count total PASS SNVs before filtering
-        _total_pass=$(apptainer exec {params.bcftools_sif} \
-            bcftools view -H -f PASS -v snps {input.vcf} | wc -l)
-        echo "[accessibility_filter] total_PASS_SNVs=$_total_pass"
-
-        apptainer exec {params.bcftools_sif} \
-            bcftools view -H -f PASS -v snps {input.vcf} \
-            | cut -f1,2,4,5 \
-            | awk -v samtools_sif="{params.samtools_sif}" \
-                  -v mask="{params.mask}" '{{
-                cmd="apptainer exec " samtools_sif \
-                    " samtools faidx " mask \
-                    " " $1 ":" $2 "-" $2 " 2>/dev/null | tail -n1";
-                cmd | getline mask_base;
-                close(cmd);
-                if (mask_base == "P") print $1 "\\t" $2 "\\t" $3 "\\t" $4
-            }}' > {output.txt}
+        python {params.script} \
+            --vcf {input.vcf} \
+            --mask {params.mask} \
+            --bcftools-sif {params.bcftools_sif} \
+            --samtools-sif {params.samtools_sif} \
+            --threads {threads} \
+            > {output.txt}
 
         _kept=$(wc -l < {output.txt})
-        _removed=$((_total_pass - _kept))
-
-        echo "================================================================"
-        echo "[accessibility_filter] variants_input=$_total_pass"
         echo "[accessibility_filter] variants_kept=$_kept"
-        echo "[accessibility_filter] variants_removed=$_removed"
-        if [ "$_total_pass" -gt 0 ]; then
-            echo "[accessibility_filter] pass_rate=$(awk "BEGIN {{printf \\"%.1f\\", $_kept/$_total_pass*100}}")%"
-        fi
         echo "[accessibility_filter] END $(date -Iseconds)"
         echo "================================================================"
         """
@@ -192,7 +173,7 @@ rule pon_mask_filter:
         script=os.path.join(_SCRIPTS, "pon_mask_filter.py"),
     log:
         "logs/filtering/{sample}/pon_mask_filter.log",
-    threads: 1
+    threads: max(2, workflow.cores // 4)
     resources:
         mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
         runtime=120,
@@ -201,5 +182,6 @@ rule pon_mask_filter:
         python {params.script} \
             --pon-fasta {params.pon_fasta} \
             --samtools-sif {params.samtools_sif} \
+            --threads {threads} \
             {input.txt} > {output.txt} 2> {log}
         """

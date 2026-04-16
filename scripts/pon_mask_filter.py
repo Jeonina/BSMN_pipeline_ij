@@ -35,7 +35,8 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from typing import Set
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Set, Tuple
 
 log = logging.getLogger("pon_mask_filter")
 
@@ -101,8 +102,22 @@ def query_fasta(fasta: str, chrom: str, pos: str, samtools_sif: str) -> str:
         return "?"
 
 
+def _process_one(line: str, pon_fasta: str, samtools_sif: str) -> dict:
+    """Process a single variant line. Called from worker threads."""
+    parts = line.rstrip("\n").split("\t")
+    chrom, pos, ref, alt = parts[0], parts[1], parts[2], parts[3]
+    pon_base = query_fasta(pon_fasta, chrom, pos, samtools_sif)
+    passes = pon_passes(alt, pon_base)
+    return {
+        "line": line,
+        "chrom": chrom, "pos": pos, "ref": ref, "alt": alt,
+        "pon_base": pon_base,
+        "passes": passes,
+    }
+
+
 def filter_variants(
-    txt_file, pon_fasta: str, samtools_sif: str, outfile=None,
+    txt_file, pon_fasta: str, samtools_sif: str, outfile=None, n_threads: int = 1,
 ) -> dict:
     """Filter text-format variant file by PON IUPAC mask.
 
@@ -119,6 +134,7 @@ def filter_variants(
     }
     pon_code_counts: Counter = Counter()
 
+    variants: List[str] = []
     for line in txt_file:
         if line.startswith("#"):
             continue
@@ -126,21 +142,29 @@ def filter_variants(
         if len(parts) < 4:
             stats["skipped"] += 1
             continue
-        stats["input"] += 1
-        chrom, pos, ref, alt = parts[0], parts[1], parts[2], parts[3]
-        pon_base = query_fasta(pon_fasta, chrom, pos, samtools_sif)
+        variants.append(line)
+
+    stats["input"] = len(variants)
+
+    def _worker(line: str) -> dict:
+        return _process_one(line, pon_fasta, samtools_sif)
+
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
+        results = list(executor.map(_worker, variants))
+
+    for r in results:
+        pon_base = r["pon_base"]
+        chrom, pos, ref, alt = r["chrom"], r["pos"], r["ref"], r["alt"]
 
         if pon_base == "?":
             stats["faidx_errors"] += 1
 
         pon_code_counts[pon_base.upper()] += 1
 
-        if pon_passes(alt, pon_base):
+        if r["passes"]:
             stats["kept"] += 1
-            log.debug(
-                "KEPT: %s:%s %s>%s pon_base=%s", chrom, pos, ref, alt, pon_base
-            )
-            outfile.write(line)
+            log.debug("KEPT: %s:%s %s>%s pon_base=%s", chrom, pos, ref, alt, pon_base)
+            outfile.write(r["line"])
         else:
             stats["removed"] += 1
             log.debug(
@@ -171,6 +195,8 @@ def main() -> None:
         "--samtools-sif", required=True, dest="samtools_sif",
         help="Apptainer SIF for samtools"
     )
+    parser.add_argument("--threads", type=int, default=1,
+                        help="Number of parallel threads for faidx queries")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -186,11 +212,12 @@ def main() -> None:
     log.info("pon_fasta_size=%s bytes",
              os.path.getsize(args.pon_fasta) if os.path.exists(args.pon_fasta) else "N/A")
     log.info("samtools_sif=%s", args.samtools_sif)
+    log.info("  threads=%d", args.threads)
     log.info("criterion: IUPAC match between alt allele and PON base → remove")
     log.info("================================================================")
 
     t0 = time.time()
-    stats = filter_variants(args.infile, args.pon_fasta, args.samtools_sif)
+    stats = filter_variants(args.infile, args.pon_fasta, args.samtools_sif, n_threads=args.threads)
     sys.stdout.flush()
     elapsed = time.time() - t0
 
