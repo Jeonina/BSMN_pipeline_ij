@@ -197,6 +197,8 @@ def filter_variants(
         "removed_low_alt": 0, "removed_pvalue": 0,
         "removed_no_coverage": 0, "skipped": 0,
         "depths": [], "vafs": [],
+        "all_depths": {"kept": [], "low_alt": [], "high_pvalue": [], "no_coverage": []},
+        "all_vafs":   {"kept": [], "low_alt": [], "high_pvalue": []},
     }
 
     # Read all variant lines upfront (headers/malformed lines filtered here)
@@ -229,15 +231,20 @@ def filter_variants(
 
         if verdict == "no_coverage":
             stats["removed_no_coverage"] += 1
+            stats["all_depths"]["no_coverage"].append(depth)
             log.debug("REMOVED no_coverage: %s:%s %s>%s depth=0", chrom, pos, ref_base, alt)
         elif verdict == "low_alt":
             stats["removed_low_alt"] += 1
+            stats["all_depths"]["low_alt"].append(depth)
+            stats["all_vafs"]["low_alt"].append(vaf)
             log.debug(
                 "REMOVED low_alt: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
                 chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
             )
         elif verdict == "high_pvalue":
             stats["removed_pvalue"] += 1
+            stats["all_depths"]["high_pvalue"].append(depth)
+            stats["all_vafs"]["high_pvalue"].append(vaf)
             log.debug(
                 "REMOVED high_pvalue: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e (>%.1e)",
                 chrom, pos, ref_base, alt, depth, alt_n, vaf, pval, p_threshold,
@@ -246,6 +253,8 @@ def filter_variants(
             stats["kept"] += 1
             stats["depths"].append(depth)
             stats["vafs"].append(vaf)
+            stats["all_depths"]["kept"].append(depth)
+            stats["all_vafs"]["kept"].append(vaf)
             log.debug(
                 "KEPT: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
                 chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
@@ -347,6 +356,52 @@ def main() -> None:
                  sorted(stats["vafs"])[len(stats["vafs"]) // 2],
                  max(stats["vafs"]))
     log.info("  elapsed=%.1f seconds", elapsed)
+
+    # --- Depth histogram (all verdicts) ---
+    log.info("DEPTH DISTRIBUTION (mpileup depth, by verdict):")
+    for verdict, depths in stats["all_depths"].items():
+        if not depths:
+            continue
+        s = sorted(depths)
+        n = len(s)
+        buckets = [0] * 10
+        boundaries = [0, 5, 10, 20, 30, 50, 75, 100, 150, 200, 99999]
+        labels =     ["0-4","5-9","10-19","20-29","30-49","50-74","75-99","100-149","150-199","200+"]
+        for d in depths:
+            for i, bound in enumerate(boundaries[1:]):
+                if d < bound:
+                    buckets[i] += 1
+                    break
+        median = s[n // 2]
+        mean = sum(depths) / n
+        log.info("  [%s] n=%d  mean=%.1f  median=%d", verdict, n, mean, median)
+        for label, count in zip(labels, buckets):
+            if count == 0:
+                continue
+            bar = "#" * min(40, int(count / n * 40) + 1)
+            log.info("    depth %6s | %-40s %d (%.1f%%)", label, bar, count, count / n * 100)
+
+    # --- VAF histogram (all verdicts except no_coverage) ---
+    log.info("VAF DISTRIBUTION (by verdict):")
+    for verdict, vafs in stats["all_vafs"].items():
+        if not vafs:
+            continue
+        s = sorted(vafs)
+        n = len(s)
+        buckets = [0] * 10
+        edges = [i * 0.1 for i in range(11)]
+        for v in vafs:
+            idx = min(int(v / 0.1), 9)
+            buckets[idx] += 1
+        median = s[n // 2]
+        log.info("  [%s] n=%d  median=%.3f", verdict, n, median)
+        for i, count in enumerate(buckets):
+            if count == 0:
+                continue
+            label = f"{edges[i]:.1f}-{edges[i+1]:.1f}"
+            bar = "#" * min(40, int(count / n * 40) + 1)
+            log.info("    VAF %9s | %-40s %d (%.1f%%)", label, bar, count, count / n * 100)
+
     log.info("END vaf_filter")
     log.info("================================================================")
 

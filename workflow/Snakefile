@@ -62,7 +62,7 @@ include: "common.smk"
 # ---------------------------------------------------------------------------
 
 def _all_targets():
-    stage = config.get("stage", "mapping")
+    stage = config.get("stage", "all")
     targets = []
     if stage in ("mapping", "all"):
         targets += expand("results/mapping/{sample}/{sample}.cram", sample=SAMPLES)
@@ -89,3 +89,21 @@ rule all:
 include: "rules/mapping.smk"
 include: "rules/calling.smk"
 include: "rules/filtering.smk"
+
+
+# ---------------------------------------------------------------------------
+# Post-pipeline summary
+# ---------------------------------------------------------------------------
+
+onsuccess:
+    import subprocess, sys
+    _scripts = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
+    )
+    for sample in SAMPLES:
+        print(f"\n[run_summary] Generating summary for sample: {sample}")
+        subprocess.run(
+            [sys.executable, os.path.join(_scripts, "run_summary.py"),
+             "--sample", sample, "--log-dir", "logs"],
+            check=False,
+        )
