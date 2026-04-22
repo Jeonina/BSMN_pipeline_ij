@@ -16,3 +16,7 @@ __pycache__/
 /results/
 /logs/
 containers/
+logs/accessibility_filter.log
+results/**/*.vcf.gz
+results/**/*.cram
+results/**/*.bam
