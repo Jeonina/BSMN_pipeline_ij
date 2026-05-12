@@ -16,6 +16,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Generator
+from typing import Any
 
 pipe_home = os.path.dirname(os.path.realpath(__file__)) + "/.."
 sys.path.append(pipe_home)
@@ -32,32 +34,24 @@ def run(args: argparse.Namespace) -> None:
             continue
         chrom, pos, ref, alt = snv.strip().split()[:4]
         printer(
-            "{chrom}\t{pos}\t{ref}\t{alt}\t{alt_BQ_info}".format(
-                chrom=chrom,
-                pos=pos,
-                ref=ref.upper(),
-                alt=alt.upper(),
-                alt_BQ_info=alt_BQ_info.send((chrom, pos, alt)),
-            )
+            f"{chrom}\t{pos}\t{ref.upper()}\t{alt.upper()}\t{alt_BQ_info.send((chrom, pos, alt))}"
         )
 
 
 @coroutine
-def alt_BQ_sum(target):
-    result = None
+def alt_BQ_sum(
+    target: Generator[Any, Any, Any],
+) -> Generator[str, tuple[str, str, str]]:
+    result: str | None = None
     while True:
-        chrom, pos, alt = yield result
+        chrom, pos, alt = yield result  # type: ignore[misc]
         alt_BQ = [q for b, q in target.send((chrom, pos)) if b == alt.upper()]
         result = f"{len(alt_BQ)}\t{sum(alt_BQ)}"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Sum of base qualities of alt allele of each SNV"
-    )
-    parser.add_argument(
-        "-b", "--bam", metavar="FILE", help="bam file", required=True
-    )
+    parser = argparse.ArgumentParser(description="Sum of base qualities of alt allele of each SNV")
+    parser.add_argument("-b", "--bam", metavar="FILE", help="bam file", required=True)
     parser.add_argument(
         "-q",
         "--min-MQ",

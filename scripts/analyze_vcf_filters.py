@@ -10,21 +10,20 @@ Usage:
 
 import argparse
 import subprocess
-import sys
 from collections import Counter, defaultdict
 
 
-def run_bcftools(args_list: list, sif: str) -> str:
+def run_bcftools(args_list: list[str], sif: str) -> str:
     cmd = ["apptainer", "exec", sif, "bcftools"] + args_list
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return result.stdout
+    return str(result.stdout)
 
 
 def parse_vaf(format_str: str, sample_str: str) -> float:
     """Extract VAF from Mutect2 FORMAT/AF field."""
     keys = format_str.split(":")
     vals = sample_str.split(":")
-    fmt = dict(zip(keys, vals))
+    fmt = dict(zip(keys, vals, strict=False))
     if "AF" in fmt:
         try:
             return float(fmt["AF"].split(",")[0])
@@ -40,13 +39,13 @@ def parse_vaf(format_str: str, sample_str: str) -> float:
     return -1.0
 
 
-def analyze(vcf: str, sif: str) -> dict:
+def analyze(vcf: str, sif: str) -> tuple[Counter[str], "defaultdict[str, list[float]]"]:
     # Get all variants (including filtered) with FILTER and FORMAT
     cmd = ["view", "-H", vcf]
     output = run_bcftools(cmd, sif)
 
-    filter_counts = Counter()
-    filter_vafs = defaultdict(list)
+    filter_counts: Counter[str] = Counter()
+    filter_vafs: defaultdict[str, list[float]] = defaultdict(list)
 
     for line in output.splitlines():
         if not line or line.startswith("#"):
@@ -54,7 +53,7 @@ def analyze(vcf: str, sif: str) -> dict:
         fields = line.split("\t")
         if len(fields) < 10:
             continue
-        chrom, pos, id_, ref, alt, qual, filt, info, fmt = fields[:9]
+        _chrom, _pos, _id_, ref, alt, _qual, filt, _info, fmt = fields[:9]
         sample = fields[9]
 
         # Skip non-SNV
@@ -72,7 +71,7 @@ def analyze(vcf: str, sif: str) -> dict:
     return filter_counts, filter_vafs
 
 
-def vaf_histogram(vafs: list, bins=20) -> str:
+def vaf_histogram(vafs: list[float], bins: int = 20) -> str:
     if not vafs:
         return "  (no data)"
     min_v, max_v = 0.0, 1.0
@@ -91,17 +90,22 @@ def vaf_histogram(vafs: list, bins=20) -> str:
     return "\n".join(lines)
 
 
-def percentiles(vafs: list) -> str:
+def percentiles(vafs: list[float]) -> str:
     if not vafs:
         return "N/A"
     s = sorted(vafs)
     n = len(s)
-    p = lambda q: s[int(n * q)]
-    return (f"min={s[0]:.4f} p10={p(0.1):.4f} p25={p(0.25):.4f} "
-            f"median={p(0.5):.4f} p75={p(0.75):.4f} p90={p(0.9):.4f} max={s[-1]:.4f}")
+
+    def p(q: float) -> float:
+        return s[int(n * q)]
+
+    return (
+        f"min={s[0]:.4f} p10={p(0.1):.4f} p25={p(0.25):.4f} "
+        f"median={p(0.5):.4f} p75={p(0.75):.4f} p90={p(0.9):.4f} max={s[-1]:.4f}"
+    )
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--vcf", required=True)
     parser.add_argument("--bcftools-sif", required=True, dest="bcftools_sif")
@@ -125,7 +129,7 @@ def main():
         pct = c / total_snv * 100 if total_snv else 0
         print(f"  {f:<43} {c:>8}  {pct:>5.1f}%")
 
-    print(f"\n[VAF distribution by filter status]")
+    print("\n[VAF distribution by filter status]")
     for filt in ["PASS"] + [f for f in sorted(filter_counts) if f != "PASS"]:
         vafs = filter_vafs.get(filt, [])
         if not vafs:
@@ -137,18 +141,18 @@ def main():
     # Save TSV for downstream use
     if args.out_prefix:
         tsv_path = args.out_prefix + ".filter_stats.tsv"
-        with open(tsv_path, "w") as f:
-            f.write("filter\tcount\tpct\tvaf_median\tvaf_mean\n")
+        with open(tsv_path, "w") as fh:
+            fh.write("filter\tcount\tpct\tvaf_median\tvaf_mean\n")
             for filt, c in sorted(filter_counts.items(), key=lambda x: -x[1]):
                 vafs = filter_vafs.get(filt, [])
                 pct = c / total_snv * 100 if total_snv else 0
-                median = sorted(vafs)[len(vafs) // 2] if vafs else -1
-                mean = sum(vafs) / len(vafs) if vafs else -1
-                f.write(f"{filt}\t{c}\t{pct:.2f}\t{median:.4f}\t{mean:.4f}\n")
+                median = sorted(vafs)[len(vafs) // 2] if vafs else -1.0
+                mean = sum(vafs) / len(vafs) if vafs else -1.0
+                fh.write(f"{filt}\t{c}\t{pct:.2f}\t{median:.4f}\t{mean:.4f}\n")
         print(f"\n[Saved] {tsv_path}")
 
     print("\n" + "=" * 60)
-    print(f"PASS SNVs: {pass_count} / {total_snv} ({pass_count/total_snv*100:.2f}%)")
+    print(f"PASS SNVs: {pass_count} / {total_snv} ({pass_count / total_snv * 100:.2f}%)")
     print("=" * 60)
 
 

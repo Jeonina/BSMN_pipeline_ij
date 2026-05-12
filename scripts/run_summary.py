@@ -9,55 +9,84 @@ Usage:
 import argparse
 import os
 import re
-import sys
-
+from typing import Any
 
 # Log file locations and patterns to extract
-STEPS = [
+STEPS: list[tuple[str, str, str, list[tuple[str, str]]]] = [
     # (step_name, log_path_template, elapsed_pattern, extra_patterns)
-    ("bwa_map",        "logs/mapping/{sample}/bwa_mem.log",
-     r"elapsed=(\d+\.\d+) seconds", []),
-    ("mark_dup",       "logs/mapping/{sample}/markdup.log",
-     r"elapsed=(\d+\.\d+) seconds", []),
-    ("mutect2_scatter","logs/calling/{sample}/mutect2_scatter.chr1.log",
-     r"Elapsed time: ([\d.]+) minutes", []),
-    ("learn_orientation","logs/calling/{sample}/learn_read_orientation.log",
-     r"Elapsed time: ([\d.]+) minutes", []),
-    ("get_pileup",     "logs/calling/{sample}/get_pileup_summaries.log",
-     r"Elapsed time: ([\d.]+) minutes", []),
-    ("calc_contamination","logs/calling/{sample}/calculate_contamination.log",
-     r"Elapsed time: ([\d.]+) minutes",
-     [(r"contamination_value=([\d.E+-]+)", "contamination")]),
-    ("merge_vcfs",     "logs/calling/{sample}/merge_vcfs.log",
-     r"Elapsed time: ([\d.]+) minutes", []),
-    ("filter_mutect",  "logs/calling/{sample}/filter_mutect_calls.log",
-     r"Elapsed time: ([\d.]+) minutes",
-     [(r"Processed (\d+) total variants", "total_variants")]),
-    ("accessibility",  "logs/filtering/{sample}/accessibility_filter.log",
-     r"elapsed=([\d.]+) seconds",
-     [(r"variants_input=(\d+)", "input"),
-      (r"variants_kept=(\d+)", "kept"),
-      (r"pass_rate=([\d.]+)%", "pass_rate")]),
-    ("germline",       "logs/filtering/{sample}/germline_filter.log",
-     r"elapsed=([\d.]+) seconds",
-     [(r"variants_kept=(\d+)", "kept"),
-      (r"pass_rate=([\d.]+)%", "pass_rate")]),
-    ("vaf",            "logs/filtering/{sample}/vaf_filter.log",
-     r"elapsed=([\d.]+) seconds",
-     [(r"variants_input=(\d+)", "input"),
-      (r"variants_kept=(\d+)", "kept"),
-      (r"pass_rate=([\d.]+)%", "pass_rate"),
-      (r"removed_low_alt=(\d+)", "low_alt"),
-      (r"removed_high_pvalue=(\d+)", "high_pvalue"),
-      (r"removed_no_coverage=(\d+)", "no_coverage")]),
-    ("pon_mask",       "logs/filtering/{sample}/pon_mask_filter.log",
-     r"elapsed=([\d.]+) seconds",
-     [(r"variants_kept=(\d+)", "kept")]),
+    ("bwa_map", "logs/mapping/{sample}/bwa_mem.log", r"elapsed=(\d+\.\d+) seconds", []),
+    ("mark_dup", "logs/mapping/{sample}/markdup.log", r"elapsed=(\d+\.\d+) seconds", []),
+    (
+        "mutect2_scatter",
+        "logs/calling/{sample}/mutect2_scatter.chr1.log",
+        r"Elapsed time: ([\d.]+) minutes",
+        [],
+    ),
+    (
+        "learn_orientation",
+        "logs/calling/{sample}/learn_read_orientation.log",
+        r"Elapsed time: ([\d.]+) minutes",
+        [],
+    ),
+    (
+        "get_pileup",
+        "logs/calling/{sample}/get_pileup_summaries.log",
+        r"Elapsed time: ([\d.]+) minutes",
+        [],
+    ),
+    (
+        "calc_contamination",
+        "logs/calling/{sample}/calculate_contamination.log",
+        r"Elapsed time: ([\d.]+) minutes",
+        [(r"contamination_value=([\d.E+-]+)", "contamination")],
+    ),
+    ("merge_vcfs", "logs/calling/{sample}/merge_vcfs.log", r"Elapsed time: ([\d.]+) minutes", []),
+    (
+        "filter_mutect",
+        "logs/calling/{sample}/filter_mutect_calls.log",
+        r"Elapsed time: ([\d.]+) minutes",
+        [(r"Processed (\d+) total variants", "total_variants")],
+    ),
+    (
+        "accessibility",
+        "logs/filtering/{sample}/accessibility_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [
+            (r"variants_input=(\d+)", "input"),
+            (r"variants_kept=(\d+)", "kept"),
+            (r"pass_rate=([\d.]+)%", "pass_rate"),
+        ],
+    ),
+    (
+        "germline",
+        "logs/filtering/{sample}/germline_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [(r"variants_kept=(\d+)", "kept"), (r"pass_rate=([\d.]+)%", "pass_rate")],
+    ),
+    (
+        "vaf",
+        "logs/filtering/{sample}/vaf_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [
+            (r"variants_input=(\d+)", "input"),
+            (r"variants_kept=(\d+)", "kept"),
+            (r"pass_rate=([\d.]+)%", "pass_rate"),
+            (r"removed_low_alt=(\d+)", "low_alt"),
+            (r"removed_high_pvalue=(\d+)", "high_pvalue"),
+            (r"removed_no_coverage=(\d+)", "no_coverage"),
+        ],
+    ),
+    (
+        "pon_mask",
+        "logs/filtering/{sample}/pon_mask_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [(r"variants_kept=(\d+)", "kept")],
+    ),
 ]
 
 
-def parse_log(path: str, elapsed_pat: str, extra_pats: list) -> dict:
-    result = {"elapsed_sec": None, "found": False}
+def parse_log(path: str, elapsed_pat: str, extra_pats: list[tuple[str, str]]) -> dict[str, Any]:
+    result: dict[str, Any] = {"elapsed_sec": None, "found": False}
     if not os.path.exists(path):
         return result
     result["found"] = True
@@ -87,17 +116,17 @@ def parse_log(path: str, elapsed_pat: str, extra_pats: list) -> dict:
     return result
 
 
-def fmt_time(seconds) -> str:
+def fmt_time(seconds: float | None) -> str:
     if seconds is None:
         return "N/A"
     if seconds < 60:
         return f"{seconds:.1f}s"
     if seconds < 3600:
-        return f"{seconds/60:.1f}m"
-    return f"{seconds/3600:.1f}h"
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds / 3600:.1f}h"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Pipeline run summary")
     parser.add_argument("--sample", required=True, help="Sample name")
     parser.add_argument("--log-dir", default="logs", dest="log_dir")
@@ -111,8 +140,7 @@ def main():
 
     total_sec = 0.0
     for step_name, log_tmpl, elapsed_pat, extra_pats in STEPS:
-        log_path = os.path.join(args.log_dir,
-                                log_tmpl.format(sample=args.sample).lstrip("logs/"))
+        log_path = os.path.join(args.log_dir, log_tmpl.format(sample=args.sample).lstrip("logs/"))
         # support both absolute and relative path
         if not os.path.exists(log_path):
             log_path = log_tmpl.format(sample=args.sample)

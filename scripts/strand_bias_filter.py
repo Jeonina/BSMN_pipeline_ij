@@ -18,7 +18,9 @@ import argparse
 import math
 import os
 import sys
+from collections.abc import Generator
 from multiprocessing import Pool
+from typing import Any
 
 from rpy2.robjects import r
 from scipy.stats import fisher_exact
@@ -44,8 +46,7 @@ def run(args: argparse.Namespace) -> None:
             for r_ in p.starmap(
                 _mpileup,
                 [
-                    [args.bam, args.min_MQ, args.min_BQ]
-                    + snv.strip().split()[:4]
+                    [args.bam, args.min_MQ, args.min_BQ] + snv.strip().split()[:4]
                     for snv in args.infile
                     if snv[0] != "#"
                 ],
@@ -61,27 +62,27 @@ def run(args: argparse.Namespace) -> None:
     sys.stdout.flush()
 
 
-def _mpileup(bam, min_MQ, min_BQ, chrom, pos, ref, alt):
-    return mpileup(
-        strand_info(base_count(bam, min_MQ, min_BQ)), chrom, pos, ref, alt
-    )
+def _mpileup(bam: str, min_MQ: int, min_BQ: int, chrom: str, pos: str, ref: str, alt: str) -> str:
+    return mpileup(strand_info(base_count(bam, min_MQ, min_BQ)), chrom, pos, ref, alt)
 
 
-def mpileup(s_info, chrom, pos, ref, alt):
-    return "{chrom}\t{pos}\t{ref}\t{alt}\t{strand_info}".format(
-        chrom=chrom,
-        pos=pos,
-        ref=ref.upper(),
-        alt=alt.upper(),
-        strand_info=s_info.send((chrom, pos, ref, alt)),
-    )
+def mpileup(
+    s_info: Generator[str, tuple[str, str, str, str]],
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+) -> str:
+    return f"{chrom}\t{pos}\t{ref.upper()}\t{alt.upper()}\t{s_info.send((chrom, pos, ref, alt))}"
 
 
 @coroutine
-def strand_info(target):
-    result = None
+def strand_info(
+    target: Generator[Any, Any, Any],
+) -> Generator[str, tuple[str, str, str, str]]:
+    result: str | None = None
     while True:
-        chrom, pos, ref, alt = yield result
+        chrom, pos, ref, alt = yield result  # type: ignore[misc]
         base_n = target.send((chrom, pos))
         total = sum(base_n.values())
         total_fwd = sum(list(base_n.values())[:4])
@@ -106,42 +107,25 @@ def strand_info(target):
             alt_ratio = math.inf
 
         result = (
-            "{total}\t{total_fwd}\t{total_rev}\t{total_ratio:f}\t"
-            "{p_poisson:e}\t"
-            "{ref_n}\t{ref_fwd}\t{ref_rev}\t{ref_ratio:f}\t"
-            "{alt_n}\t{alt_fwd}\t{alt_rev}\t{alt_ratio:f}\t"
-            "{p_fisher:e}"
-        ).format(
-            total=total,
-            total_fwd=total_fwd,
-            total_rev=total_rev,
-            total_ratio=total_ratio,
-            p_poisson=p_poisson(total_fwd, total_rev),
-            ref_n=ref_n,
-            ref_fwd=ref_fwd,
-            ref_rev=ref_rev,
-            ref_ratio=ref_ratio,
-            alt_n=alt_n,
-            alt_fwd=alt_fwd,
-            alt_rev=alt_rev,
-            alt_ratio=alt_ratio,
-            p_fisher=p_fisher(ref_fwd, alt_fwd, ref_rev, alt_rev),
+            f"{total}\t{total_fwd}\t{total_rev}\t{total_ratio:f}\t"
+            f"{p_poisson(total_fwd, total_rev):e}\t"
+            f"{ref_n}\t{ref_fwd}\t{ref_rev}\t{ref_ratio:f}\t"
+            f"{alt_n}\t{alt_fwd}\t{alt_rev}\t{alt_ratio:f}\t"
+            f"{p_fisher(ref_fwd, alt_fwd, ref_rev, alt_rev):e}"
         )
 
 
 def p_poisson(n_fwd: int, n_rev: int) -> float:
-    return r(f"poisson.test(c({n_fwd},{n_rev}))$p.value")[0]
+    return float(r(f"poisson.test(c({n_fwd},{n_rev}))$p.value")[0])
 
 
 def p_fisher(ref_fwd: int, alt_fwd: int, ref_rev: int, alt_rev: int) -> float:
-    return fisher_exact([[ref_fwd, alt_fwd], [ref_rev, alt_rev]])[1]
+    return float(fisher_exact([[ref_fwd, alt_fwd], [ref_rev, alt_rev]])[1])
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check strand bias for SNV")
-    parser.add_argument(
-        "-b", "--bam", metavar="FILE", help="bam file", required=True
-    )
+    parser.add_argument("-b", "--bam", metavar="FILE", help="bam file", required=True)
     parser.add_argument(
         "-q",
         "--min-MQ",

@@ -36,13 +36,13 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Set, Tuple
+from typing import IO, Any
 
 log = logging.getLogger("pon_mask_filter")
 
 # IUPAC_TABLE maps each code to the set of nucleotides whose presence means FAIL.
 # '*' maps to empty set → never matches → always Pass.
-IUPAC_TABLE = {
+IUPAC_TABLE: dict[str, set[str]] = {
     "A": {"A"},
     "C": {"C"},
     "G": {"G"},
@@ -58,7 +58,7 @@ IUPAC_TABLE = {
     "H": {"A", "C", "T"},
     "V": {"A", "C", "G"},
     "N": {"A", "C", "G", "T"},  # N always Fail
-    "*": set(),                  # * always Pass
+    "*": set(),  # * always Pass
 }
 
 
@@ -86,8 +86,13 @@ def query_fasta(fasta: str, chrom: str, pos: str, samtools_sif: str) -> str:
     """
     region = f"{chrom}:{pos}-{pos}"
     cmd = [
-        "apptainer", "exec", samtools_sif,
-        "samtools", "faidx", fasta, region,
+        "apptainer",
+        "exec",
+        samtools_sif,
+        "samtools",
+        "faidx",
+        fasta,
+        region,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -97,12 +102,15 @@ def query_fasta(fasta: str, chrom: str, pos: str, samtools_sif: str) -> str:
     except subprocess.CalledProcessError as e:
         log.warning(
             "faidx failed at %s:%s — returncode=%d stderr=%s",
-            chrom, pos, e.returncode, (e.stderr or "").strip(),
+            chrom,
+            pos,
+            e.returncode,
+            (e.stderr or "").strip(),
         )
         return "?"
 
 
-def _process_one(line: str, pon_fasta: str, samtools_sif: str) -> dict:
+def _process_one(line: str, pon_fasta: str, samtools_sif: str) -> dict[str, Any]:
     """Process a single variant line. Called from worker threads."""
     parts = line.rstrip("\n").split("\t")
     chrom, pos, ref, alt = parts[0], parts[1], parts[2], parts[3]
@@ -110,15 +118,22 @@ def _process_one(line: str, pon_fasta: str, samtools_sif: str) -> dict:
     passes = pon_passes(alt, pon_base)
     return {
         "line": line,
-        "chrom": chrom, "pos": pos, "ref": ref, "alt": alt,
+        "chrom": chrom,
+        "pos": pos,
+        "ref": ref,
+        "alt": alt,
         "pon_base": pon_base,
         "passes": passes,
     }
 
 
 def filter_variants(
-    txt_file, pon_fasta: str, samtools_sif: str, outfile=None, n_threads: int = 1,
-) -> dict:
+    txt_file: IO[str],
+    pon_fasta: str,
+    samtools_sif: str,
+    outfile: IO[str] | None = None,
+    n_threads: int = 1,
+) -> dict[str, Any]:
     """Filter text-format variant file by PON IUPAC mask.
 
     Input format: chrom  pos  ref  alt  (tab-separated)
@@ -128,13 +143,16 @@ def filter_variants(
     if outfile is None:
         outfile = sys.stdout
 
-    stats = {
-        "input": 0, "kept": 0, "removed": 0,
-        "skipped": 0, "faidx_errors": 0,
+    stats: dict[str, Any] = {
+        "input": 0,
+        "kept": 0,
+        "removed": 0,
+        "skipped": 0,
+        "faidx_errors": 0,
     }
-    pon_code_counts: Counter = Counter()
+    pon_code_counts: Counter[str] = Counter()
 
-    variants: List[str] = []
+    variants: list[str] = []
     for line in txt_file:
         if line.startswith("#"):
             continue
@@ -146,7 +164,7 @@ def filter_variants(
 
     stats["input"] = len(variants)
 
-    def _worker(line: str) -> dict:
+    def _worker(line: str) -> dict[str, Any]:
         return _process_one(line, pon_fasta, samtools_sif)
 
     with ThreadPoolExecutor(max_workers=n_threads) as executor:
@@ -169,7 +187,11 @@ def filter_variants(
             stats["removed"] += 1
             log.debug(
                 "REMOVED pon_masked: %s:%s %s>%s pon_base=%s (IUPAC match)",
-                chrom, pos, ref, alt, pon_base,
+                chrom,
+                pos,
+                ref,
+                alt,
+                pon_base,
             )
 
     stats["pon_code_distribution"] = dict(pon_code_counts.most_common())
@@ -183,21 +205,23 @@ def main() -> None:
     parser.add_argument(
         "infile",
         nargs="?",
-        type=argparse.FileType("r"),
-        default=sys.stdin,
-        help="Input text file (chrom\\tpos\\tref\\talt per line)",
+        default=None,
+        help="Input text file (chrom\\tpos\\tref\\talt per line); default stdin",
     )
     parser.add_argument(
-        "--pon-fasta", required=True, dest="pon_fasta",
-        help="PON FASTA file (samtools faidx indexed)"
+        "--pon-fasta",
+        required=True,
+        dest="pon_fasta",
+        help="PON FASTA file (samtools faidx indexed)",
     )
     parser.add_argument(
-        "--samtools-sif", required=True, dest="samtools_sif",
-        help="Apptainer SIF for samtools"
+        "--samtools-sif", required=True, dest="samtools_sif", help="Apptainer SIF for samtools"
     )
-    parser.add_argument("--threads", type=int, default=1,
-                        help="Number of parallel threads for faidx queries")
+    parser.add_argument(
+        "--threads", type=int, default=1, help="Number of parallel threads for faidx queries"
+    )
     args = parser.parse_args()
+    infile: IO[str] = open(args.infile) if args.infile else sys.stdin
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -207,17 +231,19 @@ def main() -> None:
 
     log.info("================================================================")
     log.info("START pon_mask_filter")
-    log.info("input_file=%s", args.infile.name)
+    log.info("input_file=%s", getattr(infile, "name", "<stdin>"))
     log.info("pon_fasta=%s", args.pon_fasta)
-    log.info("pon_fasta_size=%s bytes",
-             os.path.getsize(args.pon_fasta) if os.path.exists(args.pon_fasta) else "N/A")
+    log.info(
+        "pon_fasta_size=%s bytes",
+        os.path.getsize(args.pon_fasta) if os.path.exists(args.pon_fasta) else "N/A",
+    )
     log.info("samtools_sif=%s", args.samtools_sif)
     log.info("  threads=%d", args.threads)
     log.info("criterion: IUPAC match between alt allele and PON base → remove")
     log.info("================================================================")
 
     t0 = time.time()
-    stats = filter_variants(args.infile, args.pon_fasta, args.samtools_sif, n_threads=args.threads)
+    stats = filter_variants(infile, args.pon_fasta, args.samtools_sif, n_threads=args.threads)
     sys.stdout.flush()
     elapsed = time.time() - t0
 

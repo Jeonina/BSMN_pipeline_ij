@@ -32,7 +32,6 @@ from typing import Any
 import psutil
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Sequencer identification tables
 # ---------------------------------------------------------------------------
@@ -40,32 +39,35 @@ import yaml
 # Patterned flowcell sequencers → ODPD = 2500
 # Note: HiSeq 3000/4000 use patterned hardware but BSMN pipeline treats them
 # as unpatterned per lab convention (ODPD=100) to avoid over-deduplication.
-_PATTERNED_SEQUENCERS: frozenset[str] = frozenset({
-    "NovaSeq 6000",
-    "NovaSeq X",
-    "HiSeq X",
-    "NovaSeq",      # legacy name — kept for backward compatibility
-})
+_PATTERNED_SEQUENCERS: frozenset[str] = frozenset(
+    {
+        "NovaSeq 6000",
+        "NovaSeq X",
+        "HiSeq X",
+        "NovaSeq",  # legacy name — kept for backward compatibility
+    }
+)
 
 # Instrument ID prefix → sequencer name
 # Ordered most-specific first to avoid false matches.
 # Sources: Illumina BaseSpace naming, ENCODE portal metadata, SRA instrument fields
 _INSTRUMENT_RULES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"^LH\d"),        "NovaSeq X"),        # e.g. LH00204, LH00478
-    (re.compile(r"^A\d{5}$"),     "NovaSeq 6000"),     # e.g. A00100, A00266
-    (re.compile(r"^[EK]\d{5}$"),  "HiSeq X"),          # e.g. E00143, K00145
-    (re.compile(r"^J\d{5}$"),     "HiSeq 3000/4000"),  # e.g. J00120, J00122
-    (re.compile(r"^(SN|D)\d+"),   "HiSeq 2500"),       # e.g. SN0196, D00195
-    (re.compile(r"^HWI"),         "HiSeq 2500"),       # e.g. HWI-ST*, HWI-M*
-    (re.compile(r"^M\d{5}$"),     "MiSeq"),            # e.g. M03213
-    (re.compile(r"^(NS|NB)\d+"),  "NextSeq 500/550"),  # e.g. NS500487, NB501234
-    (re.compile(r"^VH\d+"),       "NextSeq 2000"),     # e.g. VH00204
+    (re.compile(r"^LH\d"), "NovaSeq X"),  # e.g. LH00204, LH00478
+    (re.compile(r"^A\d{5}$"), "NovaSeq 6000"),  # e.g. A00100, A00266
+    (re.compile(r"^[EK]\d{5}$"), "HiSeq X"),  # e.g. E00143, K00145
+    (re.compile(r"^J\d{5}$"), "HiSeq 3000/4000"),  # e.g. J00120, J00122
+    (re.compile(r"^(SN|D)\d+"), "HiSeq 2500"),  # e.g. SN0196, D00195
+    (re.compile(r"^HWI"), "HiSeq 2500"),  # e.g. HWI-ST*, HWI-M*
+    (re.compile(r"^M\d{5}$"), "MiSeq"),  # e.g. M03213
+    (re.compile(r"^(NS|NB)\d+"), "NextSeq 500/550"),  # e.g. NS500487, NB501234
+    (re.compile(r"^VH\d+"), "NextSeq 2000"),  # e.g. VH00204
 ]
 
 
 # ---------------------------------------------------------------------------
 # Sequencer detection (internal)
 # ---------------------------------------------------------------------------
+
 
 def _read_first_header(fastq_path: str) -> str:
     """Read the FASTQ header line from a gzipped or plain file."""
@@ -125,8 +127,7 @@ def _detect_sequencer_with_evidence(
         **base,
         "detection_method": "unknown_fallback",
         "note": (
-            f"Instrument '{instrument}' not recognized; "
-            "defaulting to ODPD=100 (conservative)"
+            f"Instrument '{instrument}' not recognized; defaulting to ODPD=100 (conservative)"
         ),
     }
 
@@ -134,6 +135,7 @@ def _detect_sequencer_with_evidence(
 # ---------------------------------------------------------------------------
 # Public sequencer API
 # ---------------------------------------------------------------------------
+
 
 def detect_sequencer(fastq_path: str) -> str:
     """
@@ -162,6 +164,7 @@ def get_optical_duplicate_pixel_distance(sequencer: str) -> int:
 # System resource queries
 # ---------------------------------------------------------------------------
 
+
 def get_bwa_threads() -> int:
     """Return CPU count capped at 4 on low-memory systems (< 8 GB)."""
     cpus = max(1, os.cpu_count() or 1)
@@ -171,7 +174,7 @@ def get_bwa_threads() -> int:
             return min(cpus, 4)
     except Exception:
         pass
-    return cpus
+    return int(cpus)
 
 
 def get_sort_memory() -> str:
@@ -220,7 +223,7 @@ def get_gatk_memory_gb() -> int:
 def get_total_memory_mb() -> int:
     """Return total system memory in MB."""
     try:
-        return psutil.virtual_memory().total >> 20
+        return int(psutil.virtual_memory().total >> 20)
     except Exception:
         return 16384
 
@@ -228,6 +231,7 @@ def get_total_memory_mb() -> int:
 # ---------------------------------------------------------------------------
 # Main resolver
 # ---------------------------------------------------------------------------
+
 
 def resolve_params(fastq_path: str, output_yaml: str) -> dict[str, Any]:
     """
@@ -270,6 +274,7 @@ def resolve_params(fastq_path: str, output_yaml: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(

@@ -28,8 +28,8 @@ import re
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import IO, Any
 
 log = logging.getLogger("vaf_filter")
 
@@ -76,12 +76,12 @@ def passes_vaf_filter(
 
 def _clean_bases(bases_str: str) -> str:
     """Strip samtools mpileup markup from base string."""
-    bases = re.sub(r"\^.", "", bases_str)          # read-start + mapping quality
-    bases = re.sub(r"\$", "", bases)               # read-end
-    for n in set(re.findall(r"-(\d+)", bases)):    # deletions
-        bases = re.sub(r"-{n}[ACGTNacgtn]{{{n}}}".format(n=n), "", bases)
-    for n in set(re.findall(r"\+(\d+)", bases)):   # insertions
-        bases = re.sub(r"\+{n}[ACGTNacgtn]{{{n}}}".format(n=n), "", bases)
+    bases = re.sub(r"\^.", "", bases_str)  # read-start + mapping quality
+    bases = re.sub(r"\$", "", bases)  # read-end
+    for n in set(re.findall(r"-(\d+)", bases)):  # deletions
+        bases = re.sub(rf"-{n}[ACGTNacgtn]{{{n}}}", "", bases)
+    for n in set(re.findall(r"\+(\d+)", bases)):  # insertions
+        bases = re.sub(rf"\+{n}[ACGTNacgtn]{{{n}}}", "", bases)
     return bases
 
 
@@ -93,19 +93,27 @@ def pileup_base_counts(
     samtools_sif: str,
     min_mapq: int = 20,
     min_baseq: int = 20,
-) -> Tuple[int, Dict[str, int]]:
+) -> tuple[int, dict[str, int]]:
     """Run samtools mpileup via Apptainer and return (depth, per-base counts).
 
     Returns (0, {}) on error or zero coverage.
     """
     cmd = [
-        "apptainer", "exec", samtools_sif,
-        "samtools", "mpileup",
-        "-d", "8000",
-        "-q", str(min_mapq),
-        "-Q", str(min_baseq),
-        "-r", f"{chrom}:{pos}-{pos}",
-        "--reference", ref,
+        "apptainer",
+        "exec",
+        samtools_sif,
+        "samtools",
+        "mpileup",
+        "-d",
+        "8000",
+        "-q",
+        str(min_mapq),
+        "-Q",
+        str(min_baseq),
+        "-r",
+        f"{chrom}:{pos}-{pos}",
+        "--reference",
+        ref,
         cram,
     ]
     try:
@@ -113,7 +121,10 @@ def pileup_base_counts(
     except subprocess.CalledProcessError as e:
         log.warning(
             "mpileup failed at %s:%s — returncode=%d stderr=%s",
-            chrom, pos, e.returncode, (e.stderr or "").strip(),
+            chrom,
+            pos,
+            e.returncode,
+            (e.stderr or "").strip(),
         )
         return 0, {}
 
@@ -125,10 +136,7 @@ def pileup_base_counts(
     bases_raw = parts[4]
     bases = _clean_bases(bases_raw)
 
-    counts: Dict[str, int] = {
-        b: bases.count(b)
-        for b in ("A", "a", "C", "c", "G", "g", "T", "t")
-    }
+    counts: dict[str, int] = {b: bases.count(b) for b in ("A", "a", "C", "c", "G", "g", "T", "t")}
     depth = sum(counts.values()) + bases.count("*")
     return depth, counts
 
@@ -142,14 +150,12 @@ def _process_one(
     min_baseq: int,
     p_threshold: float,
     min_alt: int,
-) -> dict:
+) -> dict[str, Any]:
     """Process a single variant line. Called from worker threads."""
     parts = line.rstrip("\n").split("\t")
     chrom, pos, ref_base, alt = parts[0], parts[1], parts[2], parts[3]
 
-    depth, counts = pileup_base_counts(
-        cram, ref, chrom, pos, samtools_sif, min_mapq, min_baseq
-    )
+    depth, counts = pileup_base_counts(cram, ref, chrom, pos, samtools_sif, min_mapq, min_baseq)
     alt_up = alt.upper()
     alt_n = counts.get(alt_up, 0) + counts.get(alt_up.lower(), 0)
     pval = binom_pvalue(alt_n, depth) if depth > 0 else 1.0
@@ -166,14 +172,20 @@ def _process_one(
 
     return {
         "line": line,
-        "chrom": chrom, "pos": pos, "ref_base": ref_base, "alt": alt,
-        "depth": depth, "alt_n": alt_n, "pval": pval, "vaf": vaf,
+        "chrom": chrom,
+        "pos": pos,
+        "ref_base": ref_base,
+        "alt": alt,
+        "depth": depth,
+        "alt_n": alt_n,
+        "pval": pval,
+        "vaf": vaf,
         "verdict": verdict,
     }
 
 
 def filter_variants(
-    txt_file,
+    txt_file: IO[str],
     cram: str,
     ref: str,
     samtools_sif: str,
@@ -181,9 +193,9 @@ def filter_variants(
     min_baseq: int = 20,
     p_threshold: float = 1e-6,
     min_alt: int = 5,
-    outfile=None,
+    outfile: IO[str] | None = None,
     n_threads: int = 1,
-) -> dict:
+) -> dict[str, Any]:
     """Filter text-format variant file by VAF criteria.
 
     Input format: chrom  pos  ref  alt  (tab-separated, one variant per line)
@@ -192,17 +204,21 @@ def filter_variants(
     if outfile is None:
         outfile = sys.stdout
 
-    stats = {
-        "input": 0, "kept": 0,
-        "removed_low_alt": 0, "removed_pvalue": 0,
-        "removed_no_coverage": 0, "skipped": 0,
-        "depths": [], "vafs": [],
+    stats: dict[str, Any] = {
+        "input": 0,
+        "kept": 0,
+        "removed_low_alt": 0,
+        "removed_pvalue": 0,
+        "removed_no_coverage": 0,
+        "skipped": 0,
+        "depths": [],
+        "vafs": [],
         "all_depths": {"kept": [], "low_alt": [], "high_pvalue": [], "no_coverage": []},
-        "all_vafs":   {"kept": [], "low_alt": [], "high_pvalue": []},
+        "all_vafs": {"kept": [], "low_alt": [], "high_pvalue": []},
     }
 
     # Read all variant lines upfront (headers/malformed lines filtered here)
-    variants: List[str] = []
+    variants: list[str] = []
     for line in txt_file:
         if line.startswith("#"):
             continue
@@ -214,10 +230,16 @@ def filter_variants(
 
     stats["input"] = len(variants)
 
-    def _worker(line: str) -> dict:
+    def _worker(line: str) -> dict[str, Any]:
         return _process_one(
-            line, cram, ref, samtools_sif,
-            min_mapq, min_baseq, p_threshold, min_alt,
+            line,
+            cram,
+            ref,
+            samtools_sif,
+            min_mapq,
+            min_baseq,
+            p_threshold,
+            min_alt,
         )
 
     # Run pileup calls in parallel; executor.map preserves input order
@@ -239,7 +261,14 @@ def filter_variants(
             stats["all_vafs"]["low_alt"].append(vaf)
             log.debug(
                 "REMOVED low_alt: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
-                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
+                chrom,
+                pos,
+                ref_base,
+                alt,
+                depth,
+                alt_n,
+                vaf,
+                pval,
             )
         elif verdict == "high_pvalue":
             stats["removed_pvalue"] += 1
@@ -247,7 +276,15 @@ def filter_variants(
             stats["all_vafs"]["high_pvalue"].append(vaf)
             log.debug(
                 "REMOVED high_pvalue: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e (>%.1e)",
-                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval, p_threshold,
+                chrom,
+                pos,
+                ref_base,
+                alt,
+                depth,
+                alt_n,
+                vaf,
+                pval,
+                p_threshold,
             )
         else:
             stats["kept"] += 1
@@ -257,7 +294,14 @@ def filter_variants(
             stats["all_vafs"]["kept"].append(vaf)
             log.debug(
                 "KEPT: %s:%s %s>%s depth=%d alt=%d vaf=%.4f p=%.2e",
-                chrom, pos, ref_base, alt, depth, alt_n, vaf, pval,
+                chrom,
+                pos,
+                ref_base,
+                alt,
+                depth,
+                alt_n,
+                vaf,
+                pval,
             )
             outfile.write(r["line"])
 
@@ -271,25 +315,26 @@ def main() -> None:
     parser.add_argument(
         "infile",
         nargs="?",
-        type=argparse.FileType("r"),
-        default=sys.stdin,
-        help="Input text file (chrom\\tpos\\tref\\talt per line)",
+        default=None,
+        help="Input text file (chrom\\tpos\\tref\\talt per line); default stdin",
     )
     parser.add_argument("--cram", required=True, help="CRAM/BAM file for pileup")
     parser.add_argument("--ref", required=True, help="Reference FASTA")
     parser.add_argument(
-        "--samtools-sif", required=True, dest="samtools_sif",
-        help="Apptainer SIF for samtools"
+        "--samtools-sif", required=True, dest="samtools_sif", help="Apptainer SIF for samtools"
     )
     parser.add_argument("--min-mapq", type=int, default=20, dest="min_mapq")
     parser.add_argument("--min-baseq", type=int, default=20, dest="min_baseq")
-    parser.add_argument(
-        "--p-threshold", type=float, default=1e-6, dest="p_threshold"
-    )
+    parser.add_argument("--p-threshold", type=float, default=1e-6, dest="p_threshold")
     parser.add_argument("--min-alt", type=int, default=5, dest="min_alt")
-    parser.add_argument("--threads", type=int, default=1,
-                        help="Number of parallel threads for samtools mpileup calls")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="Number of parallel threads for samtools mpileup calls",
+    )
     args = parser.parse_args()
+    infile: IO[str] = open(args.infile) if args.infile else sys.stdin
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -299,10 +344,11 @@ def main() -> None:
 
     log.info("================================================================")
     log.info("START vaf_filter")
-    log.info("input_file=%s", args.infile.name)
+    log.info("input_file=%s", getattr(infile, "name", "<stdin>"))
     log.info("cram=%s", args.cram)
-    log.info("cram_size=%s bytes",
-             os.path.getsize(args.cram) if os.path.exists(args.cram) else "N/A")
+    log.info(
+        "cram_size=%s bytes", os.path.getsize(args.cram) if os.path.exists(args.cram) else "N/A"
+    )
     log.info("ref=%s", args.ref)
     log.info("samtools_sif=%s", args.samtools_sif)
     log.info("parameters:")
@@ -311,13 +357,16 @@ def main() -> None:
     log.info("  p_binom_threshold=%.1e", args.p_threshold)
     log.info("  min_alt_count=%d", args.min_alt)
     log.info("  threads=%d", args.threads)
-    log.info("criterion: binom_test(alt, depth, p=0.5, alt='less') < %.1e AND alt >= %d",
-             args.p_threshold, args.min_alt)
+    log.info(
+        "criterion: binom_test(alt, depth, p=0.5, alt='less') < %.1e AND alt >= %d",
+        args.p_threshold,
+        args.min_alt,
+    )
     log.info("================================================================")
 
     t0 = time.time()
     stats = filter_variants(
-        args.infile,
+        infile,
         args.cram,
         args.ref,
         args.samtools_sif,
@@ -346,15 +395,19 @@ def main() -> None:
     if stats["input"] > 0:
         log.info("  pass_rate=%.1f%%", stats["kept"] / stats["input"] * 100)
     if stats["depths"]:
-        log.info("  kept_depth: min=%d median=%d max=%d",
-                 min(stats["depths"]),
-                 sorted(stats["depths"])[len(stats["depths"]) // 2],
-                 max(stats["depths"]))
+        log.info(
+            "  kept_depth: min=%d median=%d max=%d",
+            min(stats["depths"]),
+            sorted(stats["depths"])[len(stats["depths"]) // 2],
+            max(stats["depths"]),
+        )
     if stats["vafs"]:
-        log.info("  kept_vaf: min=%.4f median=%.4f max=%.4f",
-                 min(stats["vafs"]),
-                 sorted(stats["vafs"])[len(stats["vafs"]) // 2],
-                 max(stats["vafs"]))
+        log.info(
+            "  kept_vaf: min=%.4f median=%.4f max=%.4f",
+            min(stats["vafs"]),
+            sorted(stats["vafs"])[len(stats["vafs"]) // 2],
+            max(stats["vafs"]),
+        )
     log.info("  elapsed=%.1f seconds", elapsed)
 
     # --- Depth histogram (all verdicts) ---
@@ -366,7 +419,18 @@ def main() -> None:
         n = len(s)
         buckets = [0] * 10
         boundaries = [0, 5, 10, 20, 30, 50, 75, 100, 150, 200, 99999]
-        labels =     ["0-4","5-9","10-19","20-29","30-49","50-74","75-99","100-149","150-199","200+"]
+        labels = [
+            "0-4",
+            "5-9",
+            "10-19",
+            "20-29",
+            "30-49",
+            "50-74",
+            "75-99",
+            "100-149",
+            "150-199",
+            "200+",
+        ]
         for d in depths:
             for i, bound in enumerate(boundaries[1:]):
                 if d < bound:
@@ -375,7 +439,7 @@ def main() -> None:
         median = s[n // 2]
         mean = sum(depths) / n
         log.info("  [%s] n=%d  mean=%.1f  median=%d", verdict, n, mean, median)
-        for label, count in zip(labels, buckets):
+        for label, count in zip(labels, buckets, strict=False):
             if count == 0:
                 continue
             bar = "#" * min(40, int(count / n * 40) + 1)
@@ -398,7 +462,7 @@ def main() -> None:
         for i, count in enumerate(buckets):
             if count == 0:
                 continue
-            label = f"{edges[i]:.1f}-{edges[i+1]:.1f}"
+            label = f"{edges[i]:.1f}-{edges[i + 1]:.1f}"
             bar = "#" * min(40, int(count / n * 40) + 1)
             log.info("    VAF %9s | %-40s %d (%.1f%%)", label, bar, count, count / n * 100)
 

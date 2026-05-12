@@ -58,6 +58,14 @@ extend-select = ["B006"]  # REQ-MOD-007: explicit mutable-default-argument detec
 [tool.ruff.lint.per-file-ignores]
 # Tests may use non-PEP8 function names (test_..._snake_case is conventional).
 "tests/*" = ["N802", "N803", "N806"]
+# Bioinformatics convention: MQ (mapping quality), BQ (base quality), AF, VAF
+# are standardized two-letter SAM/BAM/VCF metric codes preserved verbatim
+# across the BSMN pipeline. Renaming them would break downstream consumers
+# and the published API contract. Approved by inajeon for M3.
+"bsmn_pipeline/pileup.py" = ["N803", "N806"]
+"scripts/somatic_vaf_filter.py" = ["N803", "N806"]
+"scripts/strand_bias_filter.py" = ["N803", "N806"]
+"scripts/alt_bq_sum.py" = ["N802", "N803", "N806"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -69,48 +77,11 @@ indent-style = "space"
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["bsmn_pipeline"]
+files = ["bsmn_pipeline", "scripts"]
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 namespace_packages = true
-
-[[tool.mypy.overrides]]
-# scripts/ receives full type hints in M3; lenient for M1a.
-module = "scripts.*"
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-ignore_missing_imports = true
-warn_return_any = false
-# REQ-MOD-007 deferred to M3 — scripts/ may still contain bare except,
-# implicit returns, etc., which M3 will sweep through with strict mypy.
-disable_error_code = ["return", "no-any-return", "import-untyped"]
-
-[[tool.mypy.overrides]]
-# bsmn_pipeline/{config,misc,parser,pileup}.py — straight relocation from
-# legacy library/ in M2 per SPEC-BSMN-REFACTOR-001 §7.1. Type hints land
-# in M3 (TYPE_HINT_ONLY). Keep them lenient until then so the M2 move is
-# byte-equivalent and doesn't merge with the M3 typing pass.
-module = [
-    "bsmn_pipeline.config",
-    "bsmn_pipeline.misc",
-    "bsmn_pipeline.parser",
-    "bsmn_pipeline.pileup",
-]
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-disallow_untyped_calls = false
-check_untyped_defs = true
-ignore_missing_imports = true
-warn_return_any = false
-disable_error_code = ["return", "no-any-return", "import-untyped", "no-untyped-call"]
-
-[[tool.mypy.overrides]]
-# Tests are not strictly typed.
-module = "tests.*"
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

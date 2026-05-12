@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # 1. vaf_filter — _clean_bases (pure string processing)
 # =============================================================================
 
+
 class TestCleanBases:
     """
     _clean_bases strips samtools mpileup markup from a base string.
@@ -39,6 +40,7 @@ class TestCleanBases:
     @pytest.fixture
     def clean_bases(self):
         from scripts.vaf_filter import _clean_bases
+
         return _clean_bases
 
     def test_plain_bases_unchanged(self, clean_bases):
@@ -88,12 +90,14 @@ class TestCleanBases:
 # 2. vaf_filter — binom_pvalue (pure math)
 # =============================================================================
 
+
 class TestBinomPvalue:
     """binom_pvalue returns one-sided p-value for H0: VAF >= 0.5."""
 
     @pytest.fixture
     def binom_pvalue(self):
         from scripts.vaf_filter import binom_pvalue
+
         return binom_pvalue
 
     def test_zero_depth_returns_one(self, binom_pvalue):
@@ -122,12 +126,14 @@ class TestBinomPvalue:
 # 3. vaf_filter — pileup_base_counts (mocked subprocess)
 # =============================================================================
 
+
 class TestPileupBaseCounts:
     """pileup_base_counts calls samtools mpileup via apptainer."""
 
     @pytest.fixture
     def pileup_base_counts(self):
         from scripts.vaf_filter import pileup_base_counts
+
         return pileup_base_counts
 
     def _mock_run(self, stdout: str):
@@ -173,12 +179,14 @@ class TestPileupBaseCounts:
 # 4. vaf_filter — filter_variants (mocked pileup)
 # =============================================================================
 
+
 class TestVafFilterVariants:
     """filter_variants integrates pileup_base_counts + passes_vaf_filter."""
 
     @pytest.fixture
     def filter_variants(self):
         from scripts.vaf_filter import filter_variants
+
         return filter_variants
 
     def test_somatic_variant_kept(self, filter_variants):
@@ -231,13 +239,15 @@ class TestVafFilterVariants:
 # 5. vaf_filter — CLI (main)
 # =============================================================================
 
+
 class TestVafFilterCLI:
     """CLI contract tests for vaf_filter.py main()."""
 
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "vaf_filter.py"), "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "--cram" in result.stdout
@@ -246,7 +256,8 @@ class TestVafFilterCLI:
         """--cram is required; omitting it must exit non-zero."""
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "vaf_filter.py")],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             input="",
         )
         assert result.returncode != 0
@@ -254,18 +265,24 @@ class TestVafFilterCLI:
     def test_main_invocable_via_argparse(self, tmp_path):
         """main() runs when called with valid args (pileup mocked)."""
         from scripts.vaf_filter import main
+
         infile = tmp_path / "variants.txt"
         infile.write_text("chr1\t1000\tA\tG\n")
         argv = [
             "vaf_filter.py",
             str(infile),
-            "--cram", "dummy.cram",
-            "--ref", "dummy.fa",
-            "--samtools-sif", "dummy.sif",
+            "--cram",
+            "dummy.cram",
+            "--ref",
+            "dummy.fa",
+            "--samtools-sif",
+            "dummy.sif",
         ]
-        with patch("sys.argv", argv), \
-             patch("scripts.vaf_filter.pileup_base_counts", return_value=(300, {"G": 10})), \
-             patch("sys.stdout", io.StringIO()):
+        with (
+            patch("sys.argv", argv),
+            patch("scripts.vaf_filter.pileup_base_counts", return_value=(300, {"G": 10})),
+            patch("sys.stdout", io.StringIO()),
+        ):
             main()
 
 
@@ -273,12 +290,14 @@ class TestVafFilterCLI:
 # 6. pon_mask_filter — query_fasta (mocked subprocess)
 # =============================================================================
 
+
 class TestQueryFasta:
     """query_fasta calls samtools faidx via apptainer."""
 
     @pytest.fixture
     def query_fasta(self):
         from scripts.pon_mask_filter import query_fasta
+
         return query_fasta
 
     def test_returns_base_from_faidx_output(self, query_fasta):
@@ -305,12 +324,14 @@ class TestQueryFasta:
 # 7. pon_mask_filter — filter_variants (mocked query_fasta)
 # =============================================================================
 
+
 class TestPonMaskFilterVariants:
     """filter_variants integrates query_fasta + pon_passes."""
 
     @pytest.fixture
     def filter_variants(self):
         from scripts.pon_mask_filter import filter_variants
+
         return filter_variants
 
     def test_variant_not_in_pon_passes(self, filter_variants):
@@ -371,12 +392,13 @@ class TestPonMaskFilterVariants:
 # 8. pon_mask_filter — CLI
 # =============================================================================
 
-class TestPonMaskFilterCLI:
 
+class TestPonMaskFilterCLI:
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "pon_mask_filter.py"), "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "--pon-fasta" in result.stdout
@@ -384,23 +406,30 @@ class TestPonMaskFilterCLI:
     def test_missing_required_args_exits_nonzero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "pon_mask_filter.py")],
-            capture_output=True, text=True, input="",
+            capture_output=True,
+            text=True,
+            input="",
         )
         assert result.returncode != 0
 
     def test_main_invocable_via_argparse(self, tmp_path):
         from scripts.pon_mask_filter import main
+
         infile = tmp_path / "variants.txt"
         infile.write_text("chr1\t1000\tA\tG\n")
         argv = [
             "pon_mask_filter.py",
             str(infile),
-            "--pon-fasta", "dummy.fa",
-            "--samtools-sif", "dummy.sif",
+            "--pon-fasta",
+            "dummy.fa",
+            "--samtools-sif",
+            "dummy.sif",
         ]
-        with patch("sys.argv", argv), \
-             patch("scripts.pon_mask_filter.query_fasta", return_value="*"), \
-             patch("sys.stdout", io.StringIO()):
+        with (
+            patch("sys.argv", argv),
+            patch("scripts.pon_mask_filter.query_fasta", return_value="*"),
+            patch("sys.stdout", io.StringIO()),
+        ):
             main()
 
 
@@ -408,12 +437,13 @@ class TestPonMaskFilterCLI:
 # 9. germline_filter — CLI (main)
 # =============================================================================
 
-class TestGermlineFilterCLI:
 
+class TestGermlineFilterCLI:
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "germline_filter.py"), "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "--variants" in result.stdout
@@ -422,7 +452,9 @@ class TestGermlineFilterCLI:
         """--variants is required."""
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "germline_filter.py")],
-            capture_output=True, text=True, input="chr1\t100\tA\tG\n",
+            capture_output=True,
+            text=True,
+            input="chr1\t100\tA\tG\n",
         )
         assert result.returncode != 0
 
@@ -436,17 +468,20 @@ class TestGermlineFilterCLI:
             [
                 sys.executable,
                 str(PROJECT_ROOT / "scripts" / "germline_filter.py"),
-                "--variants", str(gz),
+                "--variants",
+                str(gz),
             ],
             input="chr1\t100\tA\tG\nchr1\t200\tC\tT\n",
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
-        assert "100" not in result.stdout   # germline removed
-        assert "200" in result.stdout       # somatic kept
+        assert "100" not in result.stdout  # germline removed
+        assert "200" in result.stdout  # somatic kept
 
     def test_main_invocable_via_argparse(self, tmp_path):
         from scripts.germline_filter import main
+
         gz = tmp_path / "gnomad.txt.gz"
         with gzip.open(gz, "wt") as fh:
             fh.write("1\t100\tA\tG\n")
@@ -461,8 +496,8 @@ class TestGermlineFilterCLI:
 # 10. prepare_containers — function and CLI
 # =============================================================================
 
-class TestPrepareContainers:
 
+class TestPrepareContainers:
     @pytest.fixture
     def containers_yaml(self, tmp_path):
         """Minimal containers.yaml with two tools, one SIF existing."""
@@ -472,12 +507,14 @@ class TestPrepareContainers:
 
         cfg = {
             "tool_a": {
-                "name": "tool_a", "version": "1.0",
+                "name": "tool_a",
+                "version": "1.0",
                 "uri": "docker://example/tool_a:1.0",
                 "sif": str(sif_exists),
             },
             "tool_b": {
-                "name": "tool_b", "version": "2.0",
+                "name": "tool_b",
+                "version": "2.0",
                 "uri": "docker://example/tool_b:2.0",
                 "sif": str(tmp_path / "containers" / "missing.sif"),
             },
@@ -490,6 +527,7 @@ class TestPrepareContainers:
     def test_check_only_does_not_pull(self, containers_yaml, tmp_path, capsys):
         """--check-only prints warning, never calls apptainer pull."""
         from scripts.prepare_containers import prepare_containers
+
         with patch("subprocess.run") as mock_run:
             prepare_containers(containers_yaml, pull=False)
             mock_run.assert_not_called()
@@ -499,9 +537,12 @@ class TestPrepareContainers:
     def test_existing_sif_skipped(self, containers_yaml, tmp_path):
         """SIF that already exists is not pulled again."""
         from scripts.prepare_containers import prepare_containers
+
         pulled = []
+
         def fake_run(cmd, **kw):
             pulled.append(cmd)
+
         with patch("subprocess.run", side_effect=fake_run):
             prepare_containers(containers_yaml, pull=True)
         # Only tool_b (missing) should be pulled
@@ -511,6 +552,7 @@ class TestPrepareContainers:
     def test_all_present_prints_message(self, tmp_path, capsys):
         """When all SIFs exist, prints 'All SIF files present.'"""
         from scripts.prepare_containers import prepare_containers
+
         sif = tmp_path / "containers" / "all.sif"
         sif.parent.mkdir()
         sif.touch()
@@ -523,11 +565,11 @@ class TestPrepareContainers:
 
 
 class TestPrepareContainersCLI:
-
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "prepare_containers.py"), "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
 
@@ -548,7 +590,8 @@ class TestPrepareContainersCLI:
                 str(yaml_path),
                 "--check-only",
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "All SIF files present" in result.stdout
@@ -558,12 +601,13 @@ class TestPrepareContainersCLI:
 # 11. auto_params — CLI (main)
 # =============================================================================
 
-class TestAutoParamsCLI:
 
+class TestAutoParamsCLI:
     def test_help_exits_zero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "auto_params.py"), "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "--output" in result.stdout
@@ -571,7 +615,8 @@ class TestAutoParamsCLI:
     def test_missing_input_exits_nonzero(self):
         result = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "scripts" / "auto_params.py")],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode != 0
 
@@ -580,6 +625,7 @@ class TestAutoParamsCLI:
         # Reuse _make_fastq helper via inline creation
         fq = tmp_path / "novaseq.R1.fastq.gz"
         import gzip as _gz
+
         with _gz.open(fq, "wt") as fh:
             for i in range(5):
                 fh.write(f"@A00100:123:AABBCCDD:1:1101:{i}:{i} 1:N:0:\n")
@@ -591,9 +637,11 @@ class TestAutoParamsCLI:
                 sys.executable,
                 str(PROJECT_ROOT / "scripts" / "auto_params.py"),
                 str(fq),
-                "--output", str(out_yaml),
+                "--output",
+                str(out_yaml),
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             cwd=str(PROJECT_ROOT),
         )
         assert result.returncode == 0, f"STDERR: {result.stderr}"
@@ -608,14 +656,22 @@ class TestAutoParamsCLI:
         """CLI prints sequencer, ODPD, and output path to stdout."""
         fq = tmp_path / "test.R1.fastq.gz"
         import gzip as _gz
+
         with _gz.open(fq, "wt") as fh:
             fh.write("@A00100:1:FC:1:1:1:1 1:N:0:\nACGT\n+\nIIII\n")
         out_yaml = tmp_path / "r.yaml"
 
         result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts" / "auto_params.py"),
-             str(fq), "--output", str(out_yaml)],
-            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts" / "auto_params.py"),
+                str(fq),
+                "--output",
+                str(out_yaml),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(PROJECT_ROOT),
         )
         assert "NovaSeq 6000" in result.stdout
         assert "2500" in result.stdout

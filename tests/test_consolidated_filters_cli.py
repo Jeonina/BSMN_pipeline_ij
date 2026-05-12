@@ -61,6 +61,7 @@ def _run_help(script_rel: str) -> subprocess.CompletedProcess[str]:
 # scripts/somatic_vaf_filter.py
 # =============================================================================
 
+
 @pytest.mark.skipif(
     not HAS_STATSMODELS,
     reason="statsmodels not installed in this env (provided by Apptainer)",
@@ -99,6 +100,7 @@ class TestSomaticVafFilterCLI:
 # scripts/strand_bias_filter.py
 # =============================================================================
 
+
 @pytest.mark.skipif(
     not (HAS_RPY2 and HAS_SCIPY),
     reason="rpy2/scipy not installed in this env (provided by Apptainer)",
@@ -130,6 +132,7 @@ class TestStrandBiasFilterCLI:
 # scripts/repeat_filter.py
 # =============================================================================
 
+
 class TestRepeatFilterCLI:
     SCRIPT = "repeat_filter.py"
 
@@ -158,6 +161,7 @@ class TestRepeatFilterCLI:
 # =============================================================================
 # scripts/alt_bq_sum.py
 # =============================================================================
+
 
 class TestAltBqSumCLI:
     """alt_bq_sum has no bio-runtime imports beyond bsmn_pipeline.pileup."""
@@ -190,6 +194,7 @@ class TestAltBqSumCLI:
 # =============================================================================
 # Legacy file deletion sanity (REQ-DUP-001)
 # =============================================================================
+
 
 class TestLegacyUtilsDeleted:
     """utils/ must be gone or, transitionally, contain none of these files."""
@@ -224,6 +229,7 @@ class TestLegacyUtilsDeleted:
 # library/ collapse sanity (REQ-DUP-004 partial — job_queue retained for M7)
 # =============================================================================
 
+
 class TestLibraryCollapsed:
     """library/{config,misc,parser,pileup,__init__}.py are gone; job_queue.py stays."""
 
@@ -237,9 +243,7 @@ class TestLibraryCollapsed:
 
     @pytest.mark.parametrize("path", GONE)
     def test_legacy_library_module_removed(self, path: str) -> None:
-        assert not (PROJECT_ROOT / path).exists(), (
-            f"{path} should be moved to bsmn_pipeline/ in M2"
-        )
+        assert not (PROJECT_ROOT / path).exists(), f"{path} should be moved to bsmn_pipeline/ in M2"
 
     def test_job_queue_retained(self) -> None:
         # Held back to M7 per DEF-001 — jobs/*.py still depend on it.

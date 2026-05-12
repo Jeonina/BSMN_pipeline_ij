@@ -63,11 +63,13 @@ def _query(tool: str) -> tuple[int, int, int] | None:
         return None
     except subprocess.TimeoutExpired:
         _die(f"{tool} --version timed out")
+        return None  # pragma: no cover
     raw = (proc.stdout or proc.stderr or "").strip()
     try:
         return parse_version(raw)
     except ValueError as exc:
         _die(f"{tool}: {exc}")
+        return None  # pragma: no cover
 
 
 def preflight() -> PreflightResult:

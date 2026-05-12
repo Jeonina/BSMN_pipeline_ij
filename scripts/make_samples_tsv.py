@@ -31,8 +31,6 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
 
 # ---------------------------------------------------------------------------
 # R1 / R2 marker definitions
@@ -42,11 +40,11 @@ from typing import Dict, List, Optional, Tuple
 # r1_pattern is matched against the full filename.
 # r2_replacement is a substitution to derive the R2 filename.
 R_MARKERS = [
-    (r"_R1_001\.(fastq|fq)(\.gz)?$", "_R2_001"),   # Illumina BCL2FASTQ
-    (r"_R1\.(fastq|fq)(\.gz)?$",     "_R2"),        # simple _R1 / _R2
-    (r"_1\.(fastq|fq)(\.gz)?$",      "_2"),         # _1 / _2 (SRA, numeric)
-    (r"\.R1\.(fastq|fq)(\.gz)?$",    ".R2"),        # dot-separated .R1 / .R2
-    (r"\.1\.(fastq|fq)(\.gz)?$",     ".2"),         # dot-separated .1 / .2
+    (r"_R1_001\.(fastq|fq)(\.gz)?$", "_R2_001"),  # Illumina BCL2FASTQ
+    (r"_R1\.(fastq|fq)(\.gz)?$", "_R2"),  # simple _R1 / _R2
+    (r"_1\.(fastq|fq)(\.gz)?$", "_2"),  # _1 / _2 (SRA, numeric)
+    (r"\.R1\.(fastq|fq)(\.gz)?$", ".R2"),  # dot-separated .R1 / .R2
+    (r"\.1\.(fastq|fq)(\.gz)?$", ".2"),  # dot-separated .1 / .2
 ]
 
 
@@ -98,7 +96,8 @@ BUILTIN_PATTERNS = [
 # Helper: find R1 files
 # ---------------------------------------------------------------------------
 
-def find_r1_files(directory: str, recursive: bool) -> List[Path]:
+
+def find_r1_files(directory: str, recursive: bool) -> list[Path]:
     """Return all FASTQ files that look like R1/read1."""
     root = Path(directory)
     if not root.is_dir():
@@ -117,16 +116,16 @@ def find_r1_files(directory: str, recursive: bool) -> List[Path]:
     return r1_files
 
 
-def find_r2(r1_path: Path) -> Optional[Path]:
+def find_r2(r1_path: Path) -> Path | None:
     """Derive and validate the R2 path from an R1 path."""
     fname = r1_path.name
     for r1_pat, r2_rep in R_MARKERS:
         m = re.search(r1_pat, fname)
         if m:
             # Reconstruct R2 filename by replacing the R1 marker
-            ext = m.group(0)           # e.g. "_R1.fastq.gz"
-            r2_ext = r2_rep + ext[ext.index("."):]   # e.g. "_R2.fastq.gz"
-            r2_name = fname[:m.start()] + r2_ext
+            ext = m.group(0)  # e.g. "_R1.fastq.gz"
+            r2_ext = r2_rep + ext[ext.index(".") :]  # e.g. "_R2.fastq.gz"
+            r2_name = fname[: m.start()] + r2_ext
             r2_path = r1_path.parent / r2_name
             return r2_path if r2_path.exists() else None
     return None
@@ -136,7 +135,8 @@ def find_r2(r1_path: Path) -> Optional[Path]:
 # Helper: extract sample_id and rg from filename
 # ---------------------------------------------------------------------------
 
-def _extract_via_regex(fname: str, regex: str) -> Optional[Tuple[str, Optional[str]]]:
+
+def _extract_via_regex(fname: str, regex: str) -> tuple[str, str | None] | None:
     """Return (sample_id, rg_or_None) if regex matches, else None."""
     m = re.match(regex, fname)
     if not m:
@@ -151,10 +151,10 @@ def _extract_via_regex(fname: str, regex: str) -> Optional[Tuple[str, Optional[s
 
 def extract_sample_rg(
     r1_path: Path,
-    custom_pattern: Optional[str] = None,
-    split_fields: Optional[Tuple[int, int]] = None,
+    custom_pattern: str | None = None,
+    split_fields: tuple[int, int] | None = None,
     split_delim: str = "_",
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Extract (sample_id, readgroup) from an R1 filename.
 
     Priority:
@@ -214,9 +214,10 @@ def extract_sample_rg(
 # Auto-detect dominant pattern across all R1 files
 # ---------------------------------------------------------------------------
 
-def detect_pattern(r1_files: List[Path]) -> Optional[str]:
+
+def detect_pattern(r1_files: list[Path]) -> str | None:
     """Return name of the built-in pattern that matches most R1 files."""
-    counts: Dict[str, int] = defaultdict(int)
+    counts: dict[str, int] = defaultdict(int)
     for r1 in r1_files:
         for pat in BUILTIN_PATTERNS:
             if re.match(pat["regex"], r1.name):
@@ -233,13 +234,14 @@ def detect_pattern(r1_files: List[Path]) -> Optional[str]:
 # Main logic
 # ---------------------------------------------------------------------------
 
+
 def build_table(
     directory: str,
     recursive: bool,
-    custom_pattern: Optional[str],
-    split_fields: Optional[Tuple[int, int]],
+    custom_pattern: str | None,
+    split_fields: tuple[int, int] | None,
     split_delim: str,
-) -> List[dict]:
+) -> list[dict[str, str]]:
     """Scan directory and return list of row dicts for samples.tsv."""
     r1_files = find_r1_files(directory, recursive)
     if not r1_files:
@@ -249,7 +251,9 @@ def build_table(
     if custom_pattern:
         print(f"[make_samples_tsv] Using custom pattern: {custom_pattern}")
     elif split_fields:
-        print(f"[make_samples_tsv] Using field-split: indices {split_fields}, delim='{split_delim}'")
+        print(
+            f"[make_samples_tsv] Using field-split: indices {split_fields}, delim='{split_delim}'"
+        )
     else:
         detected = detect_pattern(r1_files)
         if detected:
@@ -292,7 +296,7 @@ def build_table(
     return rows
 
 
-def print_table(rows: List[dict]) -> None:
+def print_table(rows: list[dict[str, str]]) -> None:
     """Pretty-print the table to stdout."""
     header = f"{'sample_id':<20} {'readgroup':<20} {'fq1'}"
     print("\n" + "=" * 72)
@@ -306,7 +310,7 @@ def print_table(rows: List[dict]) -> None:
     print(f"  {len(rows)} readgroup(s) across {sample_count} sample(s)\n")
 
 
-def write_tsv(rows: List[dict], output: str) -> None:
+def write_tsv(rows: list[dict[str, str]], output: str) -> None:
     """Write rows to a TSV file."""
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, "w") as fh:
@@ -320,6 +324,7 @@ def write_tsv(rows: List[dict], output: str) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate samples.tsv from a directory of paired FASTQ files.",
@@ -332,7 +337,8 @@ def main() -> None:
         help="Directory containing FASTQ files.",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default="config/samples.tsv",
         help="Output TSV path (default: config/samples.tsv).",
     )
@@ -363,12 +369,14 @@ def main() -> None:
         help="Delimiter for --split mode (default: '_').",
     )
     parser.add_argument(
-        "--recursive", "-r",
+        "--recursive",
+        "-r",
         action="store_true",
         help="Scan subdirectories recursively.",
     )
     parser.add_argument(
-        "--dry-run", "-n",
+        "--dry-run",
+        "-n",
         action="store_true",
         dest="dry_run",
         help="Preview detected assignments without writing the output file.",

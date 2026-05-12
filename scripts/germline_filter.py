@@ -16,12 +16,12 @@ import logging
 import os
 import sys
 import time
-from typing import IO, Set
+from typing import IO
 
 log = logging.getLogger("germline_filter")
 
 
-def load_germline_set(variants_gz: str) -> Set[str]:
+def load_germline_set(variants_gz: str) -> set[str]:
     """Load gnomAD SNPs into a lookup set.
 
     Expects a gzipped file where each line is:
@@ -29,7 +29,7 @@ def load_germline_set(variants_gz: str) -> Set[str]:
 
     Returns a set of strings formatted as "chrom:pos:ref:alt".
     """
-    known: Set[str] = set()
+    known: set[str] = set()
     with gzip.open(variants_gz, "rt") as fh:
         for line in fh:
             line = line.strip()
@@ -41,7 +41,7 @@ def load_germline_set(variants_gz: str) -> Set[str]:
     return known
 
 
-def is_germline(chrom: str, pos: str, ref: str, alt: str, known: Set[str]) -> bool:
+def is_germline(chrom: str, pos: str, ref: str, alt: str, known: set[str]) -> bool:
     """Return True if the variant is a known germline variant.
 
     Strips 'chr' prefix from chrom for lookup (gnomAD file uses bare chrom names).
@@ -51,14 +51,14 @@ def is_germline(chrom: str, pos: str, ref: str, alt: str, known: Set[str]) -> bo
     return key in known
 
 
-def filter_txt(infile: IO[str], known_germ: Set[str], outfile: IO[str]) -> dict:
+def filter_txt(infile: IO[str], known_germ: set[str], outfile: IO[str]) -> dict[str, int]:
     """Filter text-format variant file, removing known germline variants.
 
     Lines starting with '#' are passed through unchanged.
     Lines with fewer than 4 tab-separated fields are skipped.
     Returns a dict with filtering statistics.
     """
-    stats = {"input": 0, "kept": 0, "removed": 0, "skipped": 0, "comments": 0}
+    stats: dict[str, int] = {"input": 0, "kept": 0, "removed": 0, "skipped": 0, "comments": 0}
     for line in infile:
         if line.startswith("#"):
             outfile.write(line)
@@ -72,9 +72,7 @@ def filter_txt(infile: IO[str], known_germ: Set[str], outfile: IO[str]) -> dict:
         chrom, pos, ref, alt = parts[0], parts[1], parts[2], parts[3]
         if is_germline(chrom, pos, ref, alt, known_germ):
             stats["removed"] += 1
-            log.debug(
-                "REMOVED germline: %s:%s %s>%s", chrom, pos, ref, alt
-            )
+            log.debug("REMOVED germline: %s:%s %s>%s", chrom, pos, ref, alt)
         else:
             stats["kept"] += 1
             outfile.write(line)
@@ -88,9 +86,8 @@ def main() -> None:
     parser.add_argument(
         "infile",
         nargs="?",
-        type=argparse.FileType("r"),
-        default=sys.stdin,
-        help="Input text file (chrom\\tpos\\tref\\talt per line)",
+        default=None,
+        help="Input text file (chrom\\tpos\\tref\\talt per line); default stdin",
     )
     parser.add_argument(
         "--variants",
@@ -99,6 +96,7 @@ def main() -> None:
         help="gzipped gnomAD SNP file (chrom\\tpos\\tref\\talt, no chr prefix)",
     )
     args = parser.parse_args()
+    infile: IO[str] = open(args.infile) if args.infile else sys.stdin
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -108,10 +106,12 @@ def main() -> None:
 
     log.info("================================================================")
     log.info("START germline_filter")
-    log.info("input_file=%s", args.infile.name)
+    log.info("input_file=%s", getattr(infile, "name", "<stdin>"))
     log.info("gnomad_variants=%s", args.variants)
-    log.info("gnomad_file_size=%s bytes",
-             os.path.getsize(args.variants) if os.path.exists(args.variants) else "N/A")
+    log.info(
+        "gnomad_file_size=%s bytes",
+        os.path.getsize(args.variants) if os.path.exists(args.variants) else "N/A",
+    )
     log.info("criterion: remove variants present in gnomAD (AF > 0.001)")
     log.info("================================================================")
 
@@ -122,7 +122,7 @@ def main() -> None:
     log.info("gnomAD variants loaded: %d entries in %.1f seconds", len(known_germ), t_load)
 
     t1 = time.time()
-    stats = filter_txt(args.infile, known_germ, sys.stdout)
+    stats = filter_txt(infile, known_germ, sys.stdout)
     sys.stdout.flush()
     t_filter = time.time() - t1
 

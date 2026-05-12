@@ -2,6 +2,7 @@
 conftest.py — pytest session setup.
 Adds project root to sys.path so tests can import scripts.* modules.
 """
+
 import sys
 from pathlib import Path
 

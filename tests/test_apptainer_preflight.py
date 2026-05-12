@@ -15,6 +15,7 @@ from scripts import apptainer_preflight as a
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _FakeRun:
     """Stand-in for subprocess.CompletedProcess."""
@@ -48,6 +49,7 @@ def _make_runner(mapping: dict[str, _FakeRun | FileNotFoundError]):
 # parse_version unit tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "raw,expected",
     [
@@ -72,10 +74,9 @@ def test_parse_version_invalid_raises(raw: str) -> None:
 # preflight integration (subprocess.run is mocked)
 # ---------------------------------------------------------------------------
 
+
 def test_apptainer_meets_floor(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner = _make_runner(
-        {"apptainer": _FakeRun(stdout="apptainer version 1.2.5\n")}
-    )
+    runner = _make_runner({"apptainer": _FakeRun(stdout="apptainer version 1.2.5\n")})
     monkeypatch.setattr(a.subprocess, "run", runner)
     result = a.preflight()
     assert result.tool == "apptainer"
@@ -83,18 +84,14 @@ def test_apptainer_meets_floor(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_apptainer_above_floor(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner = _make_runner(
-        {"apptainer": _FakeRun(stdout="apptainer version 1.4.0\n")}
-    )
+    runner = _make_runner({"apptainer": _FakeRun(stdout="apptainer version 1.4.0\n")})
     monkeypatch.setattr(a.subprocess, "run", runner)
     result = a.preflight()
     assert result.version == (1, 4, 0)
 
 
 def test_apptainer_below_floor_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
-    runner = _make_runner(
-        {"apptainer": _FakeRun(stdout="apptainer version 1.2.4\n")}
-    )
+    runner = _make_runner({"apptainer": _FakeRun(stdout="apptainer version 1.2.4\n")})
     monkeypatch.setattr(a.subprocess, "run", runner)
     with pytest.raises(SystemExit) as exc:
         a.preflight()
@@ -145,9 +142,7 @@ def test_neither_in_path_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_main_prints_ok(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    runner = _make_runner(
-        {"apptainer": _FakeRun(stdout="apptainer version 1.2.5\n")}
-    )
+    runner = _make_runner({"apptainer": _FakeRun(stdout="apptainer version 1.2.5\n")})
     monkeypatch.setattr(a.subprocess, "run", runner)
     rc = a.main([])
     captured = capsys.readouterr()

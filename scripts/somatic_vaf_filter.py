@@ -19,7 +19,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Generator
 from multiprocessing import Pool
+from typing import Any
 
 from statsmodels.stats.proportion import binom_test
 
@@ -30,18 +32,14 @@ from bsmn_pipeline.pileup import base_count  # noqa: E402
 
 
 def run(args: argparse.Namespace) -> None:
-    header = (
-        "#chr\tpos\tref\talt\tvaf\t"
-        "depth\tref_n\talt_n\tp_binom"
-    )
+    header = "#chr\tpos\tref\talt\tvaf\tdepth\tref_n\talt_n\tp_binom"
     printer(header)
     if args.nproc > 1:
         with Pool(args.nproc) as p:
             for r in p.starmap(
                 _mpileup,
                 [
-                    [args.bam, args.min_MQ, args.min_BQ]
-                    + snv.strip().split()[:4]
+                    [args.bam, args.min_MQ, args.min_BQ] + snv.strip().split()[:4]
                     for snv in args.infile
                     if snv[0] != "#"
                 ],
@@ -57,25 +55,27 @@ def run(args: argparse.Namespace) -> None:
     sys.stdout.flush()
 
 
-def _mpileup(bam, min_MQ, min_BQ, chrom, pos, ref, alt):
+def _mpileup(bam: str, min_MQ: int, min_BQ: int, chrom: str, pos: str, ref: str, alt: str) -> str:
     return mpileup(vaf_info(base_count(bam, min_MQ, min_BQ)), chrom, pos, ref, alt)
 
 
-def mpileup(v_info, chrom, pos, ref, alt):
-    return "{chrom}\t{pos}\t{ref}\t{alt}\t{vaf_info}".format(
-        chrom=chrom,
-        pos=pos,
-        ref=ref.upper(),
-        alt=alt.upper(),
-        vaf_info=v_info.send((chrom, pos, ref, alt)),
-    )
+def mpileup(
+    v_info: Generator[str, tuple[str, str, str, str]],
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+) -> str:
+    return f"{chrom}\t{pos}\t{ref.upper()}\t{alt.upper()}\t{v_info.send((chrom, pos, ref, alt))}"
 
 
 @coroutine
-def vaf_info(target):
-    result = None
+def vaf_info(
+    target: Generator[Any, Any, Any],
+) -> Generator[str, tuple[str, str, str, str]]:
+    result: str | None = None
     while True:
-        chrom, pos, ref, alt = yield result
+        chrom, pos, ref, alt = yield result  # type: ignore[misc]
         base_n = target.send((chrom, pos))
         depth = sum(base_n.values())
         ref_n = base_n[ref.upper()] + base_n[ref.lower()]
@@ -98,9 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Test whether VAF of each SNV is somatic or germline."
     )
-    parser.add_argument(
-        "-b", "--bam", metavar="FILE", help="bam file", required=True
-    )
+    parser.add_argument("-b", "--bam", metavar="FILE", help="bam file", required=True)
     parser.add_argument(
         "-q",
         "--min-MQ",

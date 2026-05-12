@@ -52,7 +52,7 @@ def _require_str(payload: dict[str, Any], key: str) -> str:
         _die(f"resolved_params.yaml: key '{key}' must be a string, got {type(value).__name__}")
     if not value.strip():
         _die(f"resolved_params.yaml: key '{key}' must be a non-empty string")
-    return value
+    return str(value)
 
 
 def _require_int(payload: dict[str, Any], key: str, *, minimum: int) -> int:
@@ -64,7 +64,7 @@ def _require_int(payload: dict[str, Any], key: str, *, minimum: int) -> int:
         _die(f"resolved_params.yaml: key '{key}' must be an integer, got {type(value).__name__}")
     if value < minimum:
         _die(f"resolved_params.yaml: key '{key}' must be >= {minimum}, got {value}")
-    return value
+    return int(value)
 
 
 def _load_yaml(path: Path | str) -> dict[str, Any]:
@@ -80,7 +80,7 @@ def _load_yaml(path: Path | str) -> dict[str, Any]:
         _die(
             f"resolved_params.yaml: top-level value must be a mapping, got {type(payload).__name__}"
         )
-    return payload
+    return dict(payload)
 
 
 def validate(path: Path | str) -> ResolvedParams:

@@ -59,9 +59,7 @@ def repeat(chrom: str, pos: str, alt: str) -> str:
                 end += wsize
                 n += 1
 
-            repeat_seq = "{}[{}>{}]{}".format(
-                read[start:alt_p], read[alt_p], alt, read[alt_p + 1 : end]
-            )
+            repeat_seq = f"{read[start:alt_p]}[{read[alt_p]}>{alt}]{read[alt_p + 1 : end]}"
 
             if n > n_max:
                 repeat_out = f"{n}\t{end - start}\t{repeat_seq}"
@@ -80,11 +78,7 @@ def run(args: argparse.Namespace) -> None:
         with Pool(args.nproc) as p:
             for r in p.starmap(
                 faidx,
-                [
-                    snv.strip().split()[:4]
-                    for snv in args.infile
-                    if snv[0] != "#"
-                ],
+                [snv.strip().split()[:4] for snv in args.infile if snv[0] != "#"],
             ):
                 print(r, flush=True)
     else:
@@ -97,13 +91,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def faidx(chrom: str, pos: str, ref: str, alt: str) -> str:
-    return "{chrom}\t{pos}\t{ref}\t{alt}\t{repeat}".format(
-        chrom=chrom,
-        pos=pos,
-        ref=ref.upper(),
-        alt=alt.upper(),
-        repeat=repeat(chrom, pos, alt.upper()),
-    )
+    return f"{chrom}\t{pos}\t{ref.upper()}\t{alt.upper()}\t{repeat(chrom, pos, alt.upper())}"
 
 
 def build_parser() -> argparse.ArgumentParser:

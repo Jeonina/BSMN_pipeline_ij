@@ -26,10 +26,11 @@ from scripts.auto_params import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _mem(total_gb: int, avail_gb: int) -> MagicMock:
     """Build a psutil.virtual_memory() mock from GB values."""
     m = MagicMock()
-    m.total = total_gb << 30      # bytes; (>> 30) == total_gb
+    m.total = total_gb << 30  # bytes; (>> 30) == total_gb
     m.available = avail_gb << 30  # bytes; (>> 20) == avail_gb * 1024 MB
     return m
 
@@ -37,6 +38,7 @@ def _mem(total_gb: int, avail_gb: int) -> MagicMock:
 # ---------------------------------------------------------------------------
 # get_sort_memory
 # ---------------------------------------------------------------------------
+
 
 class TestGetSortMemory:
     """sambamba sort memory: 30% of available RAM, min 512 MB, max 8 GB."""
@@ -72,7 +74,10 @@ class TestGetSortMemory:
         # Exactly 8 GB / 0.30 ≈ 27307 MB available → 30% = 8192 MB (at cap)
         avail_mb = 8192
         avail_gb_approx = avail_mb // 1024  # 8 GB
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(16, avail_gb_approx)):
+        with patch(
+            "scripts.auto_params.psutil.virtual_memory",
+            return_value=_mem(16, avail_gb_approx),
+        ):
             result = get_sort_memory()
         mb = int(result.rstrip("MB"))
         assert mb <= 8192
@@ -81,6 +86,7 @@ class TestGetSortMemory:
 # ---------------------------------------------------------------------------
 # get_bqsr_memory_gb
 # ---------------------------------------------------------------------------
+
 
 class TestGetBqsrMemoryGb:
     """GATK BQSR heap: half of total RAM, min 4 GB, max 64 GB."""
@@ -114,6 +120,7 @@ class TestGetBqsrMemoryGb:
 # get_markdup_memory_gb
 # ---------------------------------------------------------------------------
 
+
 class TestGetMarkdupMemoryGb:
     """Picard MarkDuplicates heap: quarter of total RAM, min 2 GB, max 32 GB."""
 
@@ -140,6 +147,7 @@ class TestGetMarkdupMemoryGb:
 # ---------------------------------------------------------------------------
 # get_bwa_threads
 # ---------------------------------------------------------------------------
+
 
 class TestGetBwaThreads:
     """CPU count, capped at 4 on systems with < 8 GB total RAM."""
@@ -176,27 +184,32 @@ class TestGetBwaThreads:
 # detect_sequencer
 # ---------------------------------------------------------------------------
 
+
 class TestDetectSequencer:
     """Instrument ID pattern → sequencer name."""
 
-    @pytest.mark.parametrize("instrument,expected", [
-        ("LH00204",  "NovaSeq X"),
-        ("A00100",   "NovaSeq 6000"),
-        ("A00266",   "NovaSeq 6000"),
-        ("E00143",   "HiSeq X"),
-        ("K00145",   "HiSeq X"),
-        ("J00120",   "HiSeq 3000/4000"),
-        ("SN0196",   "HiSeq 2500"),
-        ("D00195",   "HiSeq 2500"),
-        ("HWI-ST123","HiSeq 2500"),
-        ("M03213",   "MiSeq"),
-        ("NS500487", "NextSeq 500/550"),
-        ("NB501234", "NextSeq 500/550"),
-        ("VH00204",  "NextSeq 2000"),
-    ])
+    @pytest.mark.parametrize(
+        "instrument,expected",
+        [
+            ("LH00204", "NovaSeq X"),
+            ("A00100", "NovaSeq 6000"),
+            ("A00266", "NovaSeq 6000"),
+            ("E00143", "HiSeq X"),
+            ("K00145", "HiSeq X"),
+            ("J00120", "HiSeq 3000/4000"),
+            ("SN0196", "HiSeq 2500"),
+            ("D00195", "HiSeq 2500"),
+            ("HWI-ST123", "HiSeq 2500"),
+            ("M03213", "MiSeq"),
+            ("NS500487", "NextSeq 500/550"),
+            ("NB501234", "NextSeq 500/550"),
+            ("VH00204", "NextSeq 2000"),
+        ],
+    )
     def test_known_instrument_ids(self, instrument, expected, tmp_path):
         fq = tmp_path / "test.fastq.gz"
         import gzip
+
         header = f"@{instrument}:1:flowcell:1:1:100:200\n"
         with gzip.open(fq, "wt") as f:
             f.write(header)
@@ -205,6 +218,7 @@ class TestDetectSequencer:
     def test_unknown_instrument_falls_back(self, tmp_path):
         fq = tmp_path / "test.fastq.gz"
         import gzip
+
         with gzip.open(fq, "wt") as f:
             f.write("@ERR194146.1\n")
         assert detect_sequencer(str(fq)) == "Unknown"
@@ -213,6 +227,7 @@ class TestDetectSequencer:
         # 8 colon-fields → patterned flowcell heuristic
         fq = tmp_path / "test.fastq.gz"
         import gzip
+
         header = "@UNKNOWN:1:flowcell:1:1:100:200:ACGT\n"  # 8 fields
         with gzip.open(fq, "wt") as f:
             f.write(header)
@@ -223,20 +238,24 @@ class TestDetectSequencer:
 # get_optical_duplicate_pixel_distance
 # ---------------------------------------------------------------------------
 
+
 class TestGetOpticalDuplicatePixelDistance:
     """Patterned flowcell → 2500, unpatterned → 100."""
 
-    @pytest.mark.parametrize("sequencer,expected", [
-        ("NovaSeq 6000",    2500),
-        ("NovaSeq X",       2500),
-        ("HiSeq X",         2500),
-        ("NovaSeq",         2500),
-        ("HiSeq 2500",      100),
-        ("HiSeq 3000/4000", 100),
-        ("MiSeq",           100),
-        ("NextSeq 500/550", 100),
-        ("NextSeq 2000",    100),
-        ("Unknown",         100),
-    ])
+    @pytest.mark.parametrize(
+        "sequencer,expected",
+        [
+            ("NovaSeq 6000", 2500),
+            ("NovaSeq X", 2500),
+            ("HiSeq X", 2500),
+            ("NovaSeq", 2500),
+            ("HiSeq 2500", 100),
+            ("HiSeq 3000/4000", 100),
+            ("MiSeq", 100),
+            ("NextSeq 500/550", 100),
+            ("NextSeq 2000", 100),
+            ("Unknown", 100),
+        ],
+    )
     def test_odpd_by_sequencer(self, sequencer, expected):
         assert get_optical_duplicate_pixel_distance(sequencer) == expected

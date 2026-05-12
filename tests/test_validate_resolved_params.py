@@ -29,6 +29,7 @@ from scripts import validate_resolved_params as v  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _minimal_valid() -> dict[str, object]:
     return {
         "resolved_at": "2026-05-12T10:00:00",
@@ -49,6 +50,7 @@ def _write_yaml(tmp_path: Path, payload: object) -> Path:
 # ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------
+
 
 def test_valid_minimal_yaml(tmp_path: Path) -> None:
     p = _write_yaml(tmp_path, _minimal_valid())
@@ -78,6 +80,7 @@ def test_optical_zero_is_allowed(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Failure paths — each must raise SystemExit(2)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "missing_key",

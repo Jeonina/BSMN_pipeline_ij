@@ -40,6 +40,4 @@ def test_somatic_vaf_filter_matches_golden(tmp_path: Path) -> None:
     # columns vs byte-equality on chrom/pos/ref/alt/depth) can be wired
     # against real data. For now the test exists to document the contract
     # and to assert that the harness wakes up once the fixtures land.
-    raise AssertionError(
-        "M1b goldens present but characterization test body not yet authored"
-    )
+    raise AssertionError("M1b goldens present but characterization test body not yet authored")

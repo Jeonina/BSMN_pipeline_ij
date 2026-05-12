@@ -37,6 +37,7 @@ def _make_fastq(tmp_path: Path, name: str) -> Path:
 # Happy path
 # ---------------------------------------------------------------------------
 
+
 def test_valid_tsv_returns_records(tmp_path: Path) -> None:
     fq1 = _make_fastq(tmp_path, "r1.fastq.gz")
     fq2 = _make_fastq(tmp_path, "r2.fastq.gz")
@@ -84,9 +85,7 @@ def test_tilde_path_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert records[0].fq2 == fq2.resolve()
 
 
-def test_validate_from_stdin(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_validate_from_stdin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fq1 = _make_fastq(tmp_path, "r1.fastq.gz")
     fq2 = _make_fastq(tmp_path, "r2.fastq.gz")
     body = f"{VALID_HEADER}\nS\tRG\t{fq1}\t{fq2}\n"
@@ -99,6 +98,7 @@ def test_validate_from_stdin(
 # ---------------------------------------------------------------------------
 # Failure paths — each must raise SystemExit(2)
 # ---------------------------------------------------------------------------
+
 
 def test_missing_header_exits_2(tmp_path: Path) -> None:
     fq1 = _make_fastq(tmp_path, "r1.fastq.gz")
@@ -189,6 +189,7 @@ def test_no_data_rows_exits_2(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # CLI behaviour
 # ---------------------------------------------------------------------------
+
 
 def test_cli_returns_zero_on_valid(tmp_path: Path) -> None:
     fq1 = _make_fastq(tmp_path, "r1.fastq.gz")

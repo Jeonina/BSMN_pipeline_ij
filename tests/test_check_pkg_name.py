@@ -18,6 +18,7 @@ from scripts import check_pkg_name as c
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _FakeResp:
     def __init__(self, status: int) -> None:
         self.status = status
@@ -50,6 +51,7 @@ def _make_urlopen_raising(exc: BaseException):
 # Offline mode
 # ---------------------------------------------------------------------------
 
+
 def test_offline_mode_returns_skipped(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -63,6 +65,7 @@ def test_offline_mode_returns_skipped(
 # ---------------------------------------------------------------------------
 # Online mode — name is free
 # ---------------------------------------------------------------------------
+
 
 def test_online_404_means_name_is_free(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -90,6 +93,7 @@ def test_online_404_means_name_is_free(
 # Online mode — collision
 # ---------------------------------------------------------------------------
 
+
 def test_online_200_means_collision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -102,6 +106,7 @@ def test_online_200_means_collision(
 # ---------------------------------------------------------------------------
 # Online mode — network / unexpected error
 # ---------------------------------------------------------------------------
+
 
 def test_online_url_error_exits_2(
     monkeypatch: pytest.MonkeyPatch,
@@ -140,6 +145,7 @@ def test_online_unexpected_http_status_exits_2(
 # ---------------------------------------------------------------------------
 # Custom package name
 # ---------------------------------------------------------------------------
+
 
 def test_custom_name_arg(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

@@ -44,7 +44,7 @@ def novaseq_fastq(tmp_path_factory):
     path = tmp_path_factory.mktemp("fastq") / "novaseq.R1.fastq.gz"
     with gzip.open(path, "wt") as fh:
         for i in range(20):
-            fh.write(f"@A00100:123:AABBCCDD:1:1101:{1000+i}:{2000+i}:NNNNN 1:N:0:ATCG\n")
+            fh.write(f"@A00100:123:AABBCCDD:1:1101:{1000 + i}:{2000 + i}:NNNNN 1:N:0:ATCG\n")
             fh.write("ACGTACGTACGTACGTACGTACGTACGTACGT\n")
             fh.write("+\n")
             fh.write("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n")
@@ -101,23 +101,16 @@ class TestFilteringSmkRules:
     @pytest.fixture
     def smk_text(self):
         smk = WORKFLOW_DIR / "rules" / "filtering.smk"
-        assert smk.exists(), (
-            "workflow/rules/filtering.smk not found — implement it first"
-        )
+        assert smk.exists(), "workflow/rules/filtering.smk not found — implement it first"
         return smk.read_text()
 
     def test_all_rules_defined(self, smk_text):
         for rule in EXPECTED_FILTER_RULES:
-            assert f"rule {rule}:" in smk_text, (
-                f"Rule '{rule}' not found in filtering.smk"
-            )
+            assert f"rule {rule}:" in smk_text, f"Rule '{rule}' not found in filtering.smk"
 
     def test_apptainer_exec_used(self, smk_text):
         direct_pattern = "apptainer exec" in smk_text
-        wrapper_pattern = (
-            '_sif=CONTAINERS[' in smk_text
-            and "-sif" in smk_text
-        )
+        wrapper_pattern = "_sif=CONTAINERS[" in smk_text and "-sif" in smk_text
         assert direct_pattern or wrapper_pattern, (
             "filtering.smk must use 'apptainer exec' directly OR pass *-sif "
             "parameters to wrapper scripts that invoke apptainer internally"
@@ -125,6 +118,7 @@ class TestFilteringSmkRules:
 
     def test_no_conda_directive(self, smk_text):
         import re
+
         assert not re.search(r"^\s+conda:", smk_text, re.MULTILINE), (
             "filtering.smk must not use conda: directive"
         )
@@ -151,7 +145,7 @@ class TestFilteringSmkRules:
 
     def test_final_output_not_temp(self, smk_text):
         # final.txt should NOT be wrapped in temp()
-        final_line = [l for l in smk_text.splitlines() if "final.txt" in l]
+        final_line = [ln for ln in smk_text.splitlines() if "final.txt" in ln]
         assert final_line, "filtering.smk must define final.txt output"
         for line in final_line:
             assert "temp(" not in line, "final.txt output must NOT be temp()"
@@ -168,12 +162,14 @@ class TestGermlineFilterScript:
     @pytest.fixture
     def module(self):
         import sys
+
         sys.path.insert(0, str(PROJECT_ROOT))
         from scripts.germline_filter import (
             filter_txt,
             is_germline,
             load_germline_set,
         )
+
         return load_germline_set, is_germline, filter_txt
 
     def _make_gnomad_gz(self, tmp_path, entries):
@@ -186,10 +182,13 @@ class TestGermlineFilterScript:
 
     def test_load_germline_set_basic(self, module, tmp_path):
         load_germline_set, _, _ = module
-        gz = self._make_gnomad_gz(tmp_path, [
-            ["1", "12345", "A", "G"],
-            ["X", "67890", "C", "T"],
-        ])
+        gz = self._make_gnomad_gz(
+            tmp_path,
+            [
+                ["1", "12345", "A", "G"],
+                ["X", "67890", "C", "T"],
+            ],
+        )
         known = load_germline_set(gz)
         assert "1:12345:A:G" in known
         assert "X:67890:C:T" in known
@@ -220,8 +219,8 @@ class TestGermlineFilterScript:
         known = load_germline_set(gz)
 
         lines = (
-            "chr1\t12345\tA\tG\n"   # germline → removed
-            "chr1\t99999\tC\tT\n"   # somatic → kept
+            "chr1\t12345\tA\tG\n"  # germline → removed
+            "chr1\t99999\tC\tT\n"  # somatic → kept
         )
         infile = io.StringIO(lines)
         outfile = io.StringIO()
@@ -253,8 +252,10 @@ class TestVafFilterScript:
     @pytest.fixture
     def passes_vaf_filter(self):
         import sys
+
         sys.path.insert(0, str(PROJECT_ROOT))
         from scripts.vaf_filter import passes_vaf_filter
+
         return passes_vaf_filter
 
     def test_somatic_mosaic_passes(self, passes_vaf_filter):
@@ -298,8 +299,10 @@ class TestPonMaskFilterScript:
     @pytest.fixture
     def pon_funcs(self):
         import sys
+
         sys.path.insert(0, str(PROJECT_ROOT))
         from scripts.pon_mask_filter import iupac_match, pon_passes
+
         return iupac_match, pon_passes
 
     # --- Exact base matches (single nucleotide) ---
@@ -314,13 +317,13 @@ class TestPonMaskFilterScript:
     # --- Degenerate IUPAC codes ---
     def test_R_matches_A_and_G(self, pon_funcs):
         iupac_match, _ = pon_funcs
-        assert iupac_match("A", "R") is True   # R = A|G
+        assert iupac_match("A", "R") is True  # R = A|G
         assert iupac_match("G", "R") is True
         assert iupac_match("C", "R") is False
 
     def test_Y_matches_C_and_T(self, pon_funcs):
         iupac_match, _ = pon_funcs
-        assert iupac_match("C", "Y") is True   # Y = C|T
+        assert iupac_match("C", "Y") is True  # Y = C|T
         assert iupac_match("T", "Y") is True
         assert iupac_match("A", "Y") is False
 
@@ -416,16 +419,17 @@ class TestFilteringDryRun:
 
         # samples.tsv
         (cfg_dir / "samples.tsv").write_text(
-            "sample_id\treadgroup\tfq1\tfq2\n"
-            f"TEST001\tRG1\t{novaseq_fastq}\t{novaseq_fastq}\n"
+            f"sample_id\treadgroup\tfq1\tfq2\nTEST001\tRG1\t{novaseq_fastq}\t{novaseq_fastq}\n"
         )
 
         # containers.yaml
         import shutil
+
         shutil.copy(CONFIG_DIR / "containers.yaml", cfg_dir / "containers.yaml")
 
         # resolved_params.yaml
         from scripts.auto_params import resolve_params
+
         resolve_params(novaseq_fastq, str(cfg_dir / "resolved_params.yaml"))
 
         # config.yaml — stage=filtering, minimal chromosomes
@@ -483,9 +487,12 @@ class TestFilteringDryRun:
             [
                 "snakemake",
                 "--dry-run",
-                "--snakefile", str(WORKFLOW_DIR / "Snakefile"),
-                "--directory", str(filtering_env),
-                "--cores", "1",
+                "--snakefile",
+                str(WORKFLOW_DIR / "Snakefile"),
+                "--directory",
+                str(filtering_env),
+                "--cores",
+                "1",
             ],
             capture_output=True,
             text=True,
@@ -494,9 +501,7 @@ class TestFilteringDryRun:
     def test_dry_run_exits_zero(self, filtering_env):
         result = self._dry_run(filtering_env)
         assert result.returncode == 0, (
-            f"Snakemake dry-run failed.\n"
-            f"STDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
+            f"Snakemake dry-run failed.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
 
     def test_all_filtering_rules_in_dag(self, filtering_env):

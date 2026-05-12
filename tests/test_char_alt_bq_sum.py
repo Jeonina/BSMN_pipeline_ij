@@ -25,6 +25,4 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_alt_bq_sum_matches_golden(tmp_path: Path) -> None:
-    raise AssertionError(
-        "M1b goldens present but characterization test body not yet authored"
-    )
+    raise AssertionError("M1b goldens present but characterization test body not yet authored")

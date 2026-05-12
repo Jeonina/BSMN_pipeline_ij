@@ -1,7 +1,8 @@
 import os
 from collections import defaultdict
 
-def filetype(fname):
+
+def filetype(fname: str) -> str:
     root, ext = os.path.splitext(fname)
     ext = os.path.splitext(root)[1] if ext == ".gz" else ext
 
@@ -16,8 +17,9 @@ def filetype(fname):
 
     return ftype
 
-def sample_list(fname):
-    samples = defaultdict(list)
+
+def sample_list(fname: str) -> "defaultdict[tuple[str, str], list[tuple[str, str]]]":
+    samples: defaultdict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
     with open(fname) as sfile:
         for line in sfile:
             if line[0] == "#":

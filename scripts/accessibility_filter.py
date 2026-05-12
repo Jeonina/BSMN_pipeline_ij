@@ -25,22 +25,22 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import IO
 
 log = logging.getLogger("accessibility_filter")
 
 
-def load_bed(bed_path: str) -> Dict[str, Tuple[List[int], List[int]]]:
+def load_bed(bed_path: str) -> dict[str, tuple[list[int], list[int]]]:
     """Load BED file into memory as sorted interval arrays per chromosome.
 
     Returns dict mapping chrom -> (starts, ends) where both lists are
     sorted by start position for binary search.
     """
-    intervals: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+    intervals: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
     with open(bed_path) as fh:
         for line in fh:
             line = line.strip()
-            if not line or line.startswith("#") or line.startswith("track") or line.startswith("browser"):
+            if not line or line.startswith(("#", "track", "browser")):
                 continue
             fields = line.split("\t")
             if len(fields) < 3:
@@ -49,7 +49,7 @@ def load_bed(bed_path: str) -> Dict[str, Tuple[List[int], List[int]]]:
             intervals[chrom].append((start, end))
 
     # Sort by start and split into parallel arrays for bisect
-    result = {}
+    result: dict[str, tuple[list[int], list[int]]] = {}
     for chrom, ivs in intervals.items():
         ivs.sort()
         starts = [s for s, _ in ivs]
@@ -59,8 +59,7 @@ def load_bed(bed_path: str) -> Dict[str, Tuple[List[int], List[int]]]:
     return result
 
 
-def is_accessible(chrom: str, pos_1based: int,
-                  bed: Dict[str, Tuple[List[int], List[int]]]) -> bool:
+def is_accessible(chrom: str, pos_1based: int, bed: dict[str, tuple[list[int], list[int]]]) -> bool:
     """Return True if pos_1based falls within any BED interval on chrom.
 
     BED is 0-based half-open [start, end). VCF pos is 1-based.
@@ -78,14 +77,23 @@ def is_accessible(chrom: str, pos_1based: int,
     return pos_0based < ends[idx]
 
 
-def extract_pass_snvs(vcf: str, bcftools_sif: str) -> List[Tuple[str, str, str, str]]:
+def extract_pass_snvs(vcf: str, bcftools_sif: str) -> list[tuple[str, str, str, str]]:
     """Extract PASS SNVs from VCF using bcftools. Returns list of (chrom, pos, ref, alt)."""
     cmd = [
-        "apptainer", "exec", bcftools_sif,
-        "bcftools", "view", "-H", "-f", "PASS", "-v", "snps", vcf,
+        "apptainer",
+        "exec",
+        bcftools_sif,
+        "bcftools",
+        "view",
+        "-H",
+        "-f",
+        "PASS",
+        "-v",
+        "snps",
+        vcf,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    variants = []
+    variants: list[tuple[str, str, str, str]] = []
     for line in result.stdout.splitlines():
         if not line or line.startswith("#"):
             continue
@@ -103,12 +111,12 @@ def filter_variants(
     vcf: str,
     bed_path: str,
     bcftools_sif: str,
-    outfile=None,
-) -> dict:
+    outfile: IO[str] | None = None,
+) -> dict[str, int]:
     if outfile is None:
         outfile = sys.stdout
 
-    stats = {"input": 0, "kept": 0, "removed": 0, "no_chrom": 0}
+    stats: dict[str, int] = {"input": 0, "kept": 0, "removed": 0, "no_chrom": 0}
 
     log.info("Loading BED mask into memory...")
     bed = load_bed(bed_path)
@@ -142,10 +150,12 @@ def main() -> None:
         description="Accessibility filter: keep PASS SNVs within 1KG strict mask BED regions."
     )
     parser.add_argument("--vcf", required=True, help="Mutect2-filtered VCF (gzipped + tabix)")
-    parser.add_argument("--bed", required=True,
-                        help="1KG strict mask BED file (0-based half-open intervals)")
-    parser.add_argument("--bcftools-sif", required=True, dest="bcftools_sif",
-                        help="Apptainer SIF for bcftools")
+    parser.add_argument(
+        "--bed", required=True, help="1KG strict mask BED file (0-based half-open intervals)"
+    )
+    parser.add_argument(
+        "--bcftools-sif", required=True, dest="bcftools_sif", help="Apptainer SIF for bcftools"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
