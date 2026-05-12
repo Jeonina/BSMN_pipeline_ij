@@ -113,8 +113,14 @@ class TestFilteringSmkRules:
             )
 
     def test_apptainer_exec_used(self, smk_text):
-        assert "apptainer exec" in smk_text, (
-            "filtering.smk must use 'apptainer exec', not conda"
+        direct_pattern = "apptainer exec" in smk_text
+        wrapper_pattern = (
+            '_sif=CONTAINERS[' in smk_text
+            and "-sif" in smk_text
+        )
+        assert direct_pattern or wrapper_pattern, (
+            "filtering.smk must use 'apptainer exec' directly OR pass *-sif "
+            "parameters to wrapper scripts that invoke apptainer internally"
         )
 
     def test_no_conda_directive(self, smk_text):
