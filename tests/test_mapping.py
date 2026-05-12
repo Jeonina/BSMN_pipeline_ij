@@ -16,7 +16,6 @@ Skip integration tests (no snakemake install required):
 import gzip
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -417,8 +416,9 @@ class TestResolveParams:
         assert os.path.isabs(params["input_fastq"])
 
     def test_resolved_at_is_iso_format(self, novaseq_fastq, tmp_path):
-        from scripts.auto_params import resolve_params
         import datetime
+
+        from scripts.auto_params import resolve_params
         params = resolve_params(novaseq_fastq, str(tmp_path / "r.yaml"))
         datetime.datetime.fromisoformat(params["resolved_at"])
 

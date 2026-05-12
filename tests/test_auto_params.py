@@ -10,11 +10,9 @@ Coverage targets:
     get_optical_duplicate_pixel_distance() — patterned vs unpatterned flowcell
 """
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from scripts.auto_params import (
     detect_sequencer,
     get_bqsr_memory_gb,
@@ -23,7 +21,6 @@ from scripts.auto_params import (
     get_optical_duplicate_pixel_distance,
     get_sort_memory,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

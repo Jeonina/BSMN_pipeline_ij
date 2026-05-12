@@ -15,7 +15,6 @@ Excluded (require external processes):
     library/pileup.py::load_config      — depends on read_config
 """
 
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch

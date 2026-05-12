@@ -144,7 +144,6 @@ class TestFilteringSmkRules:
         )
 
     def test_final_output_not_temp(self, smk_text):
-        import re
         # final.txt should NOT be wrapped in temp()
         final_line = [l for l in smk_text.splitlines() if "final.txt" in l]
         assert final_line, "filtering.smk must define final.txt output"
@@ -165,9 +164,9 @@ class TestGermlineFilterScript:
         import sys
         sys.path.insert(0, str(PROJECT_ROOT))
         from scripts.germline_filter import (
-            load_germline_set,
-            is_germline,
             filter_txt,
+            is_germline,
+            load_germline_set,
         )
         return load_germline_set, is_germline, filter_txt
 
