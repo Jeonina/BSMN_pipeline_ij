@@ -88,6 +88,25 @@ warn_return_any = false
 disable_error_code = ["return", "no-any-return", "import-untyped"]
 
 [[tool.mypy.overrides]]
+# bsmn_pipeline/{config,misc,parser,pileup}.py — straight relocation from
+# legacy library/ in M2 per SPEC-BSMN-REFACTOR-001 §7.1. Type hints land
+# in M3 (TYPE_HINT_ONLY). Keep them lenient until then so the M2 move is
+# byte-equivalent and doesn't merge with the M3 typing pass.
+module = [
+    "bsmn_pipeline.config",
+    "bsmn_pipeline.misc",
+    "bsmn_pipeline.parser",
+    "bsmn_pipeline.pileup",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+check_untyped_defs = true
+ignore_missing_imports = true
+warn_return_any = false
+disable_error_code = ["return", "no-any-return", "import-untyped", "no-untyped-call"]
+
+[[tool.mypy.overrides]]
 # Tests are not strictly typed.
 module = "tests.*"
 disallow_untyped_defs = false

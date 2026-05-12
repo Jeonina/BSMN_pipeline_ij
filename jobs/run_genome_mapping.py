@@ -11,8 +11,8 @@ pipe_home = os.path.normpath(cmd_home + "/..")
 job_home = cmd_home + "/genome_mapping"
 sys.path.append(pipe_home)
 
-from library.config import run_info, run_info_append, log_dir
-from library.parser import sample_list
+from bsmn_pipeline.config import run_info, run_info_append, log_dir
+from bsmn_pipeline.parser import sample_list
 from library.job_queue import GridEngineQueue
 q = GridEngineQueue()
 
