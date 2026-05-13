@@ -36,11 +36,34 @@ from make_samples_tsv import build_table, write_tsv, find_r2, R_MARKERS
 # Helpers
 # ─────────────────────────────────────────────
 
+def _row_for_pair(r1: Path, r2: Path, pattern: str | None) -> dict:
+    """Build a single samples.tsv row from an explicit R1/R2 pair.
+
+    @MX:NOTE: bypasses build_table's directory scan to prevent the
+    Bug 2 leak (sibling FASTQ pairs in the same directory contaminating
+    samples.tsv). Reuses extract_sample_rg for the naming convention.
+    """
+    from make_samples_tsv import extract_sample_rg
+
+    sample_id, rg = extract_sample_rg(
+        r1,
+        custom_pattern=pattern,
+        split_fields=None,
+        split_delim="_",
+    )
+    return {
+        "sample_id": sample_id,
+        "readgroup": rg,
+        "fq1": str(r1.resolve()),
+        "fq2": str(r2.resolve()),
+    }
+
+
 def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> list[dict]:
     """입력 형태를 자동 판별하고 샘플 row 리스트를 반환."""
     p0 = Path(inputs[0])
 
-    # Case 1: 디렉토리
+    # Case 1: 디렉토리 — scan all R1 files in the directory
     if len(inputs) == 1 and p0.is_dir():
         return build_table(
             directory=str(p0),
@@ -50,35 +73,25 @@ def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> 
             split_delim="_",
         )
 
-    # Case 2: R1 파일 하나 → R2 자동 탐색
+    # Case 2: R1 파일 하나 → R2 자동 탐색 (single pair only, no directory scan)
     if len(inputs) == 1 and p0.is_file():
         r2 = find_r2(p0)
         if r2 is None:
             _die(f"R2 파일을 찾을 수 없습니다: {p0}")
-        return build_table(
-            directory=str(p0.parent),
-            recursive=False,
-            custom_pattern=pattern,
-            split_fields=None,
-            split_delim="_",
-        )
+        assert r2 is not None  # mypy: _die() never returns
+        return [_row_for_pair(p0, r2, pattern)]
 
-    # Case 3: R1 + R2 명시
+    # Case 3: R1 + R2 명시 (single pair only, no directory scan)
     if len(inputs) == 2:
         r1, r2 = Path(inputs[0]), Path(inputs[1])
         if not r1.is_file():
             _die(f"파일 없음: {r1}")
         if not r2.is_file():
             _die(f"파일 없음: {r2}")
-        return build_table(
-            directory=str(r1.parent),
-            recursive=False,
-            custom_pattern=pattern,
-            split_fields=None,
-            split_delim="_",
-        )
+        return [_row_for_pair(r1, r2, pattern)]
 
     _die("입력을 인식할 수 없습니다. --help 참고.")
+    return []  # unreachable; satisfies type checker
 
 
 def _die(msg: str) -> None:
@@ -153,6 +166,15 @@ def main() -> None:
 
     # ── 1. samples.tsv 생성 ─────────────────────────────────────────────────
     print("\n[run.py] ① 샘플 목록 생성 중...")
+
+    # Defensive: remove any stale samples.tsv from a previous run before
+    # building the new one. write_tsv() already opens in "w" mode, but
+    # explicit deletion makes the contract obvious and protects against
+    # an interrupted run leaving partial content.
+    samples_tsv = Path("config/samples.tsv")
+    if samples_tsv.exists():
+        samples_tsv.unlink()
+
     rows = _resolve_inputs(args.input, args.recursive, args.pattern)
 
     if not rows:

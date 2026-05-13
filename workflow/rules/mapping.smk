@@ -7,19 +7,52 @@
 # GATK4 best practices.
 #
 # DAG:
-#   bwa_mem_sort (per RG)
-#       → merge_bams (per sample)
-#           → mark_duplicates
-#               → base_recalibrator
-#                   → apply_bqsr → CRAM
-#                       → samtools_flagstat
+#   validate_fastq_pair (per RG, pre-flight)
+#       → bwa_mem_sort (per RG)
+#           → merge_bams (per sample)
+#               → mark_duplicates
+#                   → base_recalibrator
+#                       → apply_bqsr → CRAM
+#                           → samtools_flagstat
 # =============================================================================
+
+
+_MAPPING_SCRIPTS = os.path.abspath("scripts")
+
+
+rule validate_fastq_pair:
+    """
+    Pre-flight FASTQ pair validation (M-FIX-001 Bug 1).
+
+    Catches R1/R2 mismatch, truncated gzip, and count mismatch in seconds
+    rather than allowing bwa to run for 4+ hours before sambamba crashes.
+    Gates bwa_mem_sort via the sentinel file `.fastq_pair.ok`.
+    """
+    input:
+        unpack(get_fastqs),
+    output:
+        ok=touch("results/mapping/{sample}/validation/{sample}.{rg}.fastq_pair.ok"),
+    params:
+        script=os.path.join(_MAPPING_SCRIPTS, "validate_fastq_pair.py"),
+        mode="--quick",
+    log:
+        "logs/mapping/{sample}/validate_fastq_pair.{rg}.log",
+    threads: 2
+    resources:
+        mem_mb=2048,
+        runtime=30,
+    shell:
+        """
+        python {params.script} --r1 {input.fq1} --r2 {input.fq2} {params.mode} \
+            > {log} 2>&1
+        """
 
 
 rule bwa_mem_sort:
     """aln_1: BWA-MEM → sambamba view → sambamba sort  (per readgroup)"""
     input:
         unpack(get_fastqs),
+        ok="results/mapping/{sample}/validation/{sample}.{rg}.fastq_pair.ok",
     output:
         bam=temp("results/mapping/{sample}/align/{sample}.{rg}.sorted.bam"),
         bai=temp("results/mapping/{sample}/align/{sample}.{rg}.sorted.bam.bai"),
