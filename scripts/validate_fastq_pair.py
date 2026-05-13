@@ -9,14 +9,23 @@ Checks performed (fail-fast, in order):
 
   1. Both files exist.
   2. Both files are non-empty.
-  3. Gzip stream integrity:
-       - quick mode: verify the trailing gzip member parses cleanly.
-       - full mode: stream-decompress both files and assert no error.
+  3. Gzip stream integrity (ALWAYS full stream, in both quick and full modes):
+       - Stream-decompress every byte; gzip raises on CRC / length mismatch.
+       - M-FIX-002: previously --quick mode skipped this for files > 1 GB,
+         which let real-user case ERR194146_2.fastq.gz (56 GB) with
+         mid-stream CRC corruption pass validation.
   4. First record read names match (after stripping /1, /2, whitespace).
   5. Read counts match:
-       - quick mode: spot-check (skipped for files > 1 GB; relies on
-         step 3's integrity check + step 4's name parity).
+       - quick mode: skipped (relies on step 3 integrity + step 4 name parity).
        - full mode: full count of records in both files.
+
+What --quick skips (for speed on multi-GB files):
+    - Exact per-record count comparison.
+    - Random-position record-name parity checks.
+What --quick ALWAYS does (mandatory):
+    - File-exists / non-empty.
+    - Full gzip integrity (CRC + length).
+    - First-record name parity.
 
 CLI:
     python -m scripts.validate_fastq_pair --r1 R1 --r2 R2 [--quick]
@@ -40,7 +49,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-# 1 GB heuristic: above this, --quick avoids full read-count.
+# Retained for backward compatibility with callers/tests that reference it.
+# Historically used to switch --quick to a header-only integrity check above
+# 1 GB; M-FIX-002 removed that fast-path because it missed mid-stream CRC
+# corruption (user case ERR194146, 56 GB). Quick mode now ALWAYS runs the
+# full integrity scan; this constant is no longer consulted internally.
 _LARGE_FILE_BYTES = 1024 * 1024 * 1024
 
 
@@ -96,16 +109,25 @@ def _count_records_full(path: Path) -> int:
     return line_count // 4
 
 
-def _verify_gzip_quick(path: Path) -> None:
-    """Lightweight gzip integrity check.
+def _verify_gzip_integrity(path: Path, chunk_size: int = 1024 * 1024) -> None:
+    """Stream the gzip file end-to-end to catch CRC / length errors.
 
-    Reads the entire stream but discards the data; raises on any gzip
-    error including a corrupt trailing CRC. Suitable for files up to
-    ~1 GB in a few seconds; for larger files, prefer relying on the
-    full-mode count which combines integrity + counting.
+    Reads and discards every decompressed byte. The Python ``gzip`` module
+    raises ``OSError`` (incl. ``gzip.BadGzipFile``) or ``EOFError`` on CRC
+    or length mismatches when those errors are encountered mid-stream.
+
+    Rationale (M-FIX-002): real user case ERR194146_2.fastq.gz (56 GB)
+    had mid-stream CRC corruption that ``gunzip -t`` rejected but the old
+    ``--quick`` mode missed, because the old large-file fast-path only
+    validated the gzip header. I/O-bound: ~2 min on a 56 GB file at
+    typical disk speed (500 MB/s), which is acceptable given the cost of
+    discovering corruption hours into a bwa run instead.
+
+    Raises:
+        OSError, EOFError, gzip.BadGzipFile: on any gzip integrity error.
     """
     with gzip.open(path, "rb") as fh:
-        while fh.read(1024 * 1024):
+        while fh.read(chunk_size):
             pass
 
 
@@ -120,9 +142,10 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
     Args:
         r1: Path to R1 (read 1) gzip-compressed FASTQ.
         r2: Path to R2 (read 2) gzip-compressed FASTQ.
-        quick: If True, use heuristics suitable for very large (>1 GB)
-            files. Currently this skips the full record-count comparison
-            but still verifies gzip integrity and first-record name parity.
+        quick: If True, skip the per-record read-count comparison and
+            multi-position name parity checks (useful for multi-GB files).
+            Full gzip integrity (CRC + length) and first-record name
+            parity are ALWAYS verified, in both quick and full modes.
 
     Returns:
         ValidationReport with ok=True on success, ok=False with a
@@ -139,16 +162,12 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
             return ValidationReport(ok=False, message=f"{label} file is empty: {path}")
 
     # 3. Gzip integrity + 5. Read count (combined in full mode)
+    # M-FIX-002: full gzip integrity is mandatory in BOTH modes. --quick
+    # only skips the per-record count comparison, never the integrity scan.
     try:
         if quick:
             for _label, path in (("R1", r1), ("R2", r2)):
-                if path.stat().st_size <= _LARGE_FILE_BYTES:
-                    _verify_gzip_quick(path)
-                else:
-                    # For very large files, defer full integrity check;
-                    # gzip.open below for first-record read will still
-                    # raise on a corrupt header block.
-                    _verify_gzip_quick_header_only(path)
+                _verify_gzip_integrity(path)
             # Skip full count in quick mode.
             n1 = n2 = None
         else:
@@ -188,18 +207,6 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
     return ValidationReport(ok=True, message=f"OK{suffix}")
 
 
-def _verify_gzip_quick_header_only(path: Path) -> None:
-    """Header-only gzip check for files larger than 1 GB.
-
-    Reads the first 64 KB block to confirm the gzip header parses. Does
-    NOT verify the trailing CRC for very large files (the count step
-    would otherwise dominate runtime). The first-record name check that
-    follows in validate_pair will surface most header corruption cases.
-    """
-    with gzip.open(path, "rb") as fh:
-        fh.read(64 * 1024)
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -215,7 +222,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--quick",
         action="store_true",
-        help="Skip full record-count comparison (use for files > 1 GB).",
+        help=(
+            "Skip per-record name parity at multiple positions and skip "
+            "exact read-count comparison. ALWAYS verifies full gzip "
+            "integrity (CRC + length) -- equivalent to `gunzip -t`."
+        ),
     )
     return p
 

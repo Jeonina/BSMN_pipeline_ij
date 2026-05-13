@@ -1,8 +1,12 @@
-"""Tests for scripts.validate_fastq_pair (M-FIX-001 Bug 1).
+"""Tests for scripts.validate_fastq_pair (M-FIX-001 Bug 1, M-FIX-002).
 
 Pre-flight FASTQ pair validation that runs BEFORE bwa_mem_sort to catch
 R1/R2 mismatch, truncated gzip, and count mismatches in seconds rather
 than hours.
+
+M-FIX-002 (2026-05): user case ERR194146 R2 (56 GB) had mid-stream CRC
+corruption that --quick mode previously missed. Quick mode now ALWAYS
+performs full gzip integrity scan regardless of file size.
 
 @MX:ANCHOR: validate_pair is the only entry point used by the Snakemake
 gating rule; signature changes break workflow/rules/mapping.smk.
@@ -14,6 +18,7 @@ from __future__ import annotations
 import gzip
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from scripts import validate_fastq_pair as v
@@ -154,3 +159,161 @@ def test_validate_quick_accepts_pair(tmp_path: Path) -> None:
     r1, r2 = _make_pair(tmp_path, n=50)
     report = v.validate_pair(r1, r2, quick=True)
     assert report.ok
+
+
+# ---------------------------------------------------------------------------
+# M-FIX-002: --quick mode must catch mid-stream gzip corruption
+# Regression: real user case ERR194146 R2 (56 GB) had mid-stream CRC error
+# that --quick mode previously missed (only header was validated for >1 GB).
+# ---------------------------------------------------------------------------
+
+
+def _make_crc_corrupted_gzip(path: Path) -> None:
+    """Create a gzip file with mid-stream CRC corruption.
+
+    Writes ~100 synthetic FASTQ records (~10 KB compressed), then flips
+    a byte after the gzip header to corrupt the deflate stream / CRC.
+    """
+    _synth_fastq(path, n_reads=100, name_prefix="READ")
+    data = path.read_bytes()
+    # Skip the first 18 bytes (gzip header) to avoid breaking the header.
+    # Corrupt a byte near the middle of the stream.
+    mid = len(data) // 2
+    corrupt_pos = max(18, mid)
+    corrupted = bytearray(data)
+    corrupted[corrupt_pos] ^= 0xFF
+    path.write_bytes(bytes(corrupted))
+
+
+def test_quick_mode_rejects_mid_stream_crc_corruption(tmp_path: Path) -> None:
+    """--quick mode MUST detect mid-stream CRC corruption (M-FIX-002).
+
+    Real user case: ERR194146_2.fastq.gz (56 GB) had mid-stream CRC errors
+    that gunzip -t rejected, but --quick mode previously passed because it
+    only validated the gzip header on files > 1 GB.
+    """
+    r1 = tmp_path / "clean_R1.fastq.gz"
+    r2 = tmp_path / "corrupt_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+    _make_crc_corrupted_gzip(r2)
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert not report.ok, "Quick mode must reject mid-stream CRC corruption"
+    msg = report.message.lower()
+    assert "gzip" in msg or "crc" in msg or "integrity" in msg, (
+        f"Expected gzip/CRC/integrity in message, got: {report.message}"
+    )
+
+
+def test_quick_mode_rejects_truncated_gzip(tmp_path: Path) -> None:
+    """--quick mode MUST detect a gzip file truncated before its CRC trailer."""
+    r1 = tmp_path / "clean_R1.fastq.gz"
+    r2 = tmp_path / "truncated_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+    _synth_fastq(r2, n_reads=500)  # bigger so truncation removes >1 KB of payload
+    raw = r2.read_bytes()
+    # Drop the last 1 KB, which removes the CRC + ISIZE trailer.
+    r2.write_bytes(raw[: max(32, len(raw) - 1024)])
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert not report.ok, "Quick mode must reject truncated gzip"
+    msg = report.message.lower()
+    assert "gzip" in msg or "integrity" in msg or "eof" in msg, (
+        f"Expected gzip/integrity in message, got: {report.message}"
+    )
+
+
+def test_quick_mode_cli_rejects_mid_stream_corruption(tmp_path: Path) -> None:
+    """CLI in --quick mode must exit 2 on mid-stream gzip corruption."""
+    r1 = tmp_path / "clean_R1.fastq.gz"
+    r2 = tmp_path / "corrupt_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+    _make_crc_corrupted_gzip(r2)
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.validate_fastq_pair",
+            "--r1",
+            str(r1),
+            "--r2",
+            str(r2),
+            "--quick",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent.parent,
+    )
+    assert proc.returncode == 2, f"Expected exit 2, got {proc.returncode}: {proc.stderr}"
+    stderr_lower = proc.stderr.lower()
+    assert "gzip" in stderr_lower or "crc" in stderr_lower or "integrity" in stderr_lower
+
+
+def test_quick_mode_rejects_corruption_in_large_file_path(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Regression for ERR194146: --quick mode on a "large" file path must
+    still run a full integrity scan, NOT a header-only check.
+
+    Reproduces the user case where R2 was 56 GB and triggered the
+    large-file fast-path; we simulate by lowering the size threshold so a
+    small test file is treated as "large".
+    """
+    import os as _os
+
+    r1 = tmp_path / "clean_R1.fastq.gz"
+    r2 = tmp_path / "corrupt_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+
+    # Write random (incompressible) payload so the gzip output stays large
+    # enough to hide corruption well past the first 64 KB read window.
+    # ~1 MB random data -> ~1 MB compressed.
+    with gzip.open(r2, "wb") as fh:
+        fh.write(b"@READ0\n")
+        fh.write(b"A" * 100 + b"\n+\n" + b"I" * 100 + b"\n")
+        fh.write(_os.urandom(1024 * 1024))  # incompressible bulk
+
+    raw = r2.read_bytes()
+    assert len(raw) > 256 * 1024, (
+        f"test file must exceed 64 KB header window (got {len(raw)} bytes)"
+    )
+    corrupted = bytearray(raw)
+    # Corrupt at ~75% to ensure we are well past the 64 KB header window.
+    corrupt_pos = (len(raw) * 3) // 4
+    corrupted[corrupt_pos] ^= 0xFF
+    r2.write_bytes(bytes(corrupted))
+
+    # Force the >1 GB code path even though the file is ~hundreds of KB.
+    monkeypatch.setattr(v, "_LARGE_FILE_BYTES", 100)  # type: ignore[attr-defined]
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert not report.ok, (
+        "Quick mode on the large-file path must NOT skip mid-stream "
+        "integrity (ERR194146 regression)"
+    )
+    msg = report.message.lower()
+    assert "gzip" in msg or "crc" in msg or "integrity" in msg
+
+
+def test_quick_mode_still_fast_on_clean_input(tmp_path: Path) -> None:
+    """A ~10 MB clean gzip must validate in --quick mode quickly (< 5 s).
+
+    Confirms the new full-stream integrity scan does not regress wall-clock
+    cost on typical inputs. 10 MB of compressed FASTQ ~= ~200k reads.
+    """
+    r1 = tmp_path / "big_R1.fastq.gz"
+    r2 = tmp_path / "big_R2.fastq.gz"
+    # 200_000 reads * ~210 raw bytes per record ~= 42 MB raw -> ~10 MB gz.
+    _synth_fastq(r1, n_reads=200_000)
+    _synth_fastq(r2, n_reads=200_000)
+    # Sanity: file is at least a few hundred KB so we are actually measuring
+    # the scan (FASTQ with constant payload compresses very well).
+    assert r2.stat().st_size > 500_000
+
+    start = time.monotonic()
+    report = v.validate_pair(r1, r2, quick=True)
+    elapsed = time.monotonic() - start
+
+    assert report.ok, f"Expected OK, got: {report.message}"
+    assert elapsed < 5.0, f"Quick mode took {elapsed:.2f}s on 10 MB input (limit 5 s)"
