@@ -317,3 +317,95 @@ def test_quick_mode_still_fast_on_clean_input(tmp_path: Path) -> None:
 
     assert report.ok, f"Expected OK, got: {report.message}"
     assert elapsed < 5.0, f"Quick mode took {elapsed:.2f}s on 10 MB input (limit 5 s)"
+
+
+# ---------------------------------------------------------------------------
+# M-FIX-003: --quick mode must catch R1/R2 read-count mismatch
+# Regression: real user case ERR194146 had R1 with N reads and R2 with N+k
+# reads after fasterq-dump --split-files left singletons. The mismatch only
+# surfaced 7.5 h into bwa_mem_sort as "paired reads have different names".
+# Quick mode previously checked only the first record's name parity and let
+# any mid/end-stream divergence slip through.
+# ---------------------------------------------------------------------------
+
+
+def test_quick_mode_rejects_r1_r2_count_mismatch(tmp_path: Path) -> None:
+    """--quick mode MUST detect R1/R2 read-count inequality (M-FIX-003).
+
+    Synthetic R1 with 100 reads, R2 with 99 reads. First-record name parity
+    passes (both READ0). Without the parity count check, --quick mode would
+    pass this pair and bwa would die hours later.
+    """
+    r1 = tmp_path / "uneven_R1.fastq.gz"
+    r2 = tmp_path / "uneven_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+    _synth_fastq(r2, n_reads=99)
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert not report.ok, "Quick mode must reject R1/R2 count mismatch"
+    msg = report.message.lower()
+    assert "count" in msg or "mismatch" in msg, (
+        f"Expected count/mismatch in message, got: {report.message}"
+    )
+
+
+def test_quick_mode_rejects_invalid_fastq_structure(tmp_path: Path) -> None:
+    """--quick mode MUST reject a gzip whose line count is not divisible by 4.
+
+    A FASTQ record is exactly 4 lines (@header, seq, +, qual). A line count
+    that is not a multiple of 4 implies a truncated or malformed record.
+    """
+    r1 = tmp_path / "clean_R1.fastq.gz"
+    r2 = tmp_path / "malformed_R2.fastq.gz"
+    # Both files have the SAME total line count so parity passes, but the
+    # count is not a multiple of 4 -> structure check must fire.
+    # 9 lines (one full 4-line record + a 5-line malformed second record).
+    with gzip.open(r1, "wt") as fh:
+        fh.write("@READ0\nACGT\n+\nIIII\n")
+        fh.write("@READ1\nACGT\n+\nIIII\nEXTRA\n")  # 5 lines -> 9 total
+    with gzip.open(r2, "wt") as fh:
+        fh.write("@READ0\nACGT\n+\nIIII\n")
+        fh.write("@READ1\nACGT\n+\nIIII\nEXTRA\n")  # 5 lines -> 9 total
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert not report.ok, "Quick mode must reject non-multiple-of-4 line count"
+    msg = report.message.lower()
+    assert "fastq" in msg or "structure" in msg or "multiple of 4" in msg, (
+        f"Expected fastq/structure/multiple-of-4 in message, got: {report.message}"
+    )
+
+
+def test_quick_mode_accepts_matched_counts(tmp_path: Path) -> None:
+    """--quick mode passes a pair with identical R1/R2 record counts (M-FIX-003)."""
+    r1 = tmp_path / "matched_R1.fastq.gz"
+    r2 = tmp_path / "matched_R2.fastq.gz"
+    _synth_fastq(r1, n_reads=100)
+    _synth_fastq(r2, n_reads=100)
+
+    report = v.validate_pair(r1, r2, quick=True)
+    assert report.ok, f"Expected OK on matched pair, got: {report.message}"
+    assert "100" in report.message, f"Expected count in message, got: {report.message}"
+
+
+def test_quick_mode_speed_budget(tmp_path: Path) -> None:
+    """--quick mode on a ~1 MB pair completes well under 5 seconds (M-FIX-003).
+
+    Proportional check: if 1 MB takes ~5 s, then a 60 GB pair extrapolates
+    to ~85 hours, which would be unacceptable. Real budget on 1 MB should
+    be sub-second; this guard exists to catch accidental quadratic regressions.
+    """
+    r1 = tmp_path / "speed_R1.fastq.gz"
+    r2 = tmp_path / "speed_R2.fastq.gz"
+    # ~20_000 reads * ~210 raw bytes ~= 4 MB raw, ~1 MB gz (with constant payload).
+    _synth_fastq(r1, n_reads=20_000)
+    _synth_fastq(r2, n_reads=20_000)
+    assert r1.stat().st_size > 50_000, "test file must be large enough to time"
+
+    start = time.monotonic()
+    report = v.validate_pair(r1, r2, quick=True)
+    elapsed = time.monotonic() - start
+
+    assert report.ok, f"Expected OK, got: {report.message}"
+    assert elapsed < 5.0, (
+        f"Quick mode took {elapsed:.2f}s on ~1 MB pair (budget 5 s)"
+    )

@@ -9,22 +9,28 @@ Checks performed (fail-fast, in order):
 
   1. Both files exist.
   2. Both files are non-empty.
-  3. Gzip stream integrity (ALWAYS full stream, in both quick and full modes):
+  3. Gzip stream integrity + line count, fused in a single streaming pass
+     (ALWAYS full stream, in both quick and full modes):
        - Stream-decompress every byte; gzip raises on CRC / length mismatch.
+       - Count newlines while streaming so we get R1/R2 record counts for free.
        - M-FIX-002: previously --quick mode skipped this for files > 1 GB,
          which let real-user case ERR194146_2.fastq.gz (56 GB) with
          mid-stream CRC corruption pass validation.
-  4. First record read names match (after stripping /1, /2, whitespace).
-  5. Read counts match:
-       - quick mode: skipped (relies on step 3 integrity + step 4 name parity).
-       - full mode: full count of records in both files.
+       - M-FIX-003: previously --quick mode never compared R1/R2 record
+         counts. Real-user case ERR194146 had R1/R2 with different read
+         counts (fasterq-dump --split-files leaves singletons), and the
+         mismatch only surfaced 7.5h into bwa_mem_sort as paired-reads-have-
+         different-names. Quick mode now ALWAYS verifies count parity.
+  4. R1 line count == R2 line count, and line count divisible by 4
+     (proper FASTQ record structure). Both modes.
+  5. First record read names match (after stripping /1, /2, whitespace).
 
 What --quick skips (for speed on multi-GB files):
-    - Exact per-record count comparison.
-    - Random-position record-name parity checks.
+    - Random-position record-name parity checks beyond the first record.
 What --quick ALWAYS does (mandatory):
     - File-exists / non-empty.
     - Full gzip integrity (CRC + length).
+    - R1/R2 read-count parity + FASTQ structure (lines % 4 == 0).
     - First-record name parity.
 
 CLI:
@@ -87,48 +93,37 @@ def _read_first_record_name(path: Path) -> str:
     return _strip_read_suffix(header[1:].strip())
 
 
-def _count_records_full(path: Path) -> int:
-    """Stream-decompress and count FASTQ records.
+def _verify_and_count_lines(path: Path, chunk_size: int = 1024 * 1024) -> int:
+    """Stream the gzip file end-to-end and count newlines in one pass.
 
-    Implicitly verifies gzip integrity: any truncation or CRC mismatch
-    raises an OSError / EOFError inside the gzip module.
-    """
-    line_count = 0
-    with gzip.open(path, "rb") as fh:
-        # Read in chunks for memory efficiency on large files.
-        buf: IO[bytes] = fh  # type: ignore[assignment]
-        while True:
-            chunk = buf.read(1024 * 1024)
-            if not chunk:
-                break
-            line_count += chunk.count(b"\n")
-    if line_count % 4 != 0:
-        raise ValueError(
-            f"{path}: line count {line_count} is not a multiple of 4 (truncated record?)"
-        )
-    return line_count // 4
+    Fuses two responsibilities so we touch every decompressed byte exactly
+    once: (1) gzip integrity (CRC + length) and (2) line count for R1/R2
+    parity. The Python ``gzip`` module raises ``OSError`` (incl.
+    ``gzip.BadGzipFile``) or ``EOFError`` on CRC or length mismatches when
+    those errors are encountered mid-stream.
 
+    Rationale (M-FIX-002, M-FIX-003): real user case ERR194146 had both
+    mid-stream CRC corruption (M-FIX-002) and R1/R2 count divergence
+    (M-FIX-003: --split-files leaves singletons). Both modes now scan the
+    full stream and return the line count, so callers can enforce
+    parity + FASTQ structure (lines % 4 == 0). I/O-bound: ~5-10 min on a
+    60 GB file at typical disk speed.
 
-def _verify_gzip_integrity(path: Path, chunk_size: int = 1024 * 1024) -> None:
-    """Stream the gzip file end-to-end to catch CRC / length errors.
-
-    Reads and discards every decompressed byte. The Python ``gzip`` module
-    raises ``OSError`` (incl. ``gzip.BadGzipFile``) or ``EOFError`` on CRC
-    or length mismatches when those errors are encountered mid-stream.
-
-    Rationale (M-FIX-002): real user case ERR194146_2.fastq.gz (56 GB)
-    had mid-stream CRC corruption that ``gunzip -t`` rejected but the old
-    ``--quick`` mode missed, because the old large-file fast-path only
-    validated the gzip header. I/O-bound: ~2 min on a 56 GB file at
-    typical disk speed (500 MB/s), which is acceptable given the cost of
-    discovering corruption hours into a bwa run instead.
+    Returns:
+        Total newline count in the decompressed stream.
 
     Raises:
         OSError, EOFError, gzip.BadGzipFile: on any gzip integrity error.
     """
+    line_count = 0
     with gzip.open(path, "rb") as fh:
-        while fh.read(chunk_size):
-            pass
+        buf: IO[bytes] = fh  # type: ignore[assignment]
+        while True:
+            chunk = buf.read(chunk_size)
+            if not chunk:
+                break
+            line_count += chunk.count(b"\n")
+    return line_count
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +137,10 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
     Args:
         r1: Path to R1 (read 1) gzip-compressed FASTQ.
         r2: Path to R2 (read 2) gzip-compressed FASTQ.
-        quick: If True, skip the per-record read-count comparison and
-            multi-position name parity checks (useful for multi-GB files).
-            Full gzip integrity (CRC + length) and first-record name
-            parity are ALWAYS verified, in both quick and full modes.
+        quick: If True, skip multi-position name parity checks (useful for
+            multi-GB files). Full gzip integrity (CRC + length), R1/R2
+            read-count parity, FASTQ structure (lines % 4 == 0), and
+            first-record name parity are ALWAYS verified in both modes.
 
     Returns:
         ValidationReport with ok=True on success, ok=False with a
@@ -161,27 +156,48 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
         if path.stat().st_size == 0:
             return ValidationReport(ok=False, message=f"{label} file is empty: {path}")
 
-    # 3. Gzip integrity + 5. Read count (combined in full mode)
-    # M-FIX-002: full gzip integrity is mandatory in BOTH modes. --quick
-    # only skips the per-record count comparison, never the integrity scan.
+    # 3. Gzip integrity + line count (fused single pass for both R1 and R2).
+    # M-FIX-002: full gzip integrity is mandatory in BOTH modes.
+    # M-FIX-003: read-count parity is mandatory in BOTH modes.
     try:
-        if quick:
-            for _label, path in (("R1", r1), ("R2", r2)):
-                _verify_gzip_integrity(path)
-            # Skip full count in quick mode.
-            n1 = n2 = None
-        else:
-            n1 = _count_records_full(r1)
-            n2 = _count_records_full(r2)
-    except (OSError, EOFError, ValueError) as e:
-        # gzip module raises BadGzipFile (OSError subclass), EOFError on
-        # truncation, ValueError on our own line-count check.
+        lines_r1 = _verify_and_count_lines(r1)
+        lines_r2 = _verify_and_count_lines(r2)
+    except (OSError, EOFError) as e:
+        # gzip module raises BadGzipFile (OSError subclass) or EOFError on
+        # truncation / CRC mismatch.
         return ValidationReport(
             ok=False,
             message=f"gzip integrity check failed: {e}",
         )
 
-    # 4. First record name parity
+    # 4a. R1/R2 line-count parity (M-FIX-003). A mismatch here is what
+    # caused the real user case to die 7.5 h into bwa_mem_sort with
+    # "paired reads have different names".
+    if lines_r1 != lines_r2:
+        n1_records = lines_r1 // 4
+        n2_records = lines_r2 // 4
+        return ValidationReport(
+            ok=False,
+            message=(
+                f"R1/R2 read count mismatch: R1={n1_records} reads "
+                f"({lines_r1} lines) vs R2={n2_records} reads "
+                f"({lines_r2} lines)"
+            ),
+        )
+
+    # 4b. FASTQ structure: every record is 4 lines.
+    if lines_r1 % 4 != 0:
+        return ValidationReport(
+            ok=False,
+            message=(
+                f"invalid FASTQ structure: line count {lines_r1} is not a "
+                f"multiple of 4 (truncated record?)"
+            ),
+        )
+
+    n_records = lines_r1 // 4
+
+    # 5. First record name parity.
     try:
         n1_first = _read_first_record_name(r1)
         n2_first = _read_first_record_name(r2)
@@ -196,15 +212,8 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
             ),
         )
 
-    # 5. Full count comparison (full mode only)
-    if not quick and n1 != n2:
-        return ValidationReport(
-            ok=False,
-            message=f"read count mismatch: R1={n1} vs R2={n2}",
-        )
-
-    suffix = " (quick mode)" if quick else f" ({n1} reads each)"
-    return ValidationReport(ok=True, message=f"OK{suffix}")
+    suffix = " (quick mode)" if quick else ""
+    return ValidationReport(ok=True, message=f"OK ({n_records} reads each){suffix}")
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +232,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--quick",
         action="store_true",
         help=(
-            "Skip per-record name parity at multiple positions and skip "
-            "exact read-count comparison. ALWAYS verifies full gzip "
-            "integrity (CRC + length) -- equivalent to `gunzip -t`."
+            "Skip multi-position name parity checks (only the first record "
+            "name is compared). ALWAYS performs full gzip integrity (CRC + "
+            "length) AND R1/R2 read-count parity check -- catches the "
+            "ERR194146 failure mode where R1 and R2 had different read "
+            "counts after fasterq-dump --split-files."
         ),
     )
     return p
