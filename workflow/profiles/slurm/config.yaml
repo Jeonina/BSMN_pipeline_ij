@@ -1,0 +1,79 @@
+# =============================================================================
+# Snakemake SLURM cluster profile (Snakemake 8+ via snakemake-executor-plugin-slurm)
+# =============================================================================
+#
+# Purpose
+# -------
+# Translate per-rule `resources:` blocks (mem_mb, runtime, threads) declared
+# throughout workflow/rules/*.smk into sbatch flags so the BSMN pipeline can
+# run on multi-node SLURM clusters without code changes.
+#
+# Usage
+# -----
+#   python run.py /data/cohort/ --cluster slurm --stage all
+#
+# Per-cluster customization
+# -------------------------
+# Almost every cluster has a different partition name, account, and walltime
+# policy. Override these without editing this file:
+#
+#   # Override partition (CLI):
+#   snakemake --profile workflow/profiles/slurm \
+#             --default-resources slurm_partition=mypartition
+#
+#   # Override partition (env):
+#   export SBATCH_PARTITION=mypartition
+#
+#   # Override account (env, required by many HPC sites):
+#   export SBATCH_ACCOUNT=myaccount
+#
+# Resource mapping
+# ----------------
+# Snakemake's `resources:` keys are mapped by the plugin as follows:
+#   mem_mb   -> --mem=<N>M
+#   runtime  -> --time=<minutes>     (integer minutes; the plugin formats it)
+#   threads  -> --cpus-per-task=<N>
+#
+# Reference: https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/slurm.html
+# =============================================================================
+
+# --- Executor plugin --------------------------------------------------------
+executor: slurm
+
+# --- Parallelism ------------------------------------------------------------
+# Maximum number of concurrent SLURM jobs. Adjust per cluster fair-share policy.
+jobs: 50
+
+# --- Reliability ------------------------------------------------------------
+# Auto-retry transient failures (node draining, OOM nodes, network blips).
+restart-times: 2
+
+# Keep running independent jobs even if one fails — surfaces multiple errors
+# per submission instead of a slow one-at-a-time debug loop.
+keep-going: True
+
+# --- Debugging --------------------------------------------------------------
+# Print the shell command for each job so users can copy/paste and debug
+# individual failures.
+printshellcmds: True
+
+# --- Container isolation ----------------------------------------------------
+# Preserve the Apptainer/Singularity container declared by individual rules.
+# Without this, jobs run on the bare cluster Python which usually lacks the
+# bioconda toolchain.
+use-apptainer: True
+
+# --- Default resources ------------------------------------------------------
+# Per-rule `resources:` blocks already declare mem_mb / runtime / threads.
+# This block supplies the SLURM-only defaults (partition, account) that
+# Snakefile rules MUST NOT hardcode (they are cluster-specific).
+#
+# The values below are placeholders. Override via:
+#   - SBATCH_PARTITION / SBATCH_ACCOUNT env vars, or
+#   - snakemake --default-resources slurm_partition=... slurm_account=...
+default-resources:
+  slurm_partition: "default"
+  slurm_account: ""
+  # Provide fallbacks for rules that forget to declare resources
+  mem_mb: 4096
+  runtime: 60

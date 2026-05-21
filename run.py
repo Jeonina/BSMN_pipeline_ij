@@ -22,6 +22,7 @@ Usage
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 import os
@@ -99,6 +100,25 @@ def _die(msg: str) -> None:
     sys.exit(1)
 
 
+# @MX:ANCHOR: runtime_minutes_to_hms — used by SLURM profile docs and tests
+# @MX:REASON: stable contract between Snakemake `resources.runtime` (minutes,
+#             integer) and SLURM `--time=HH:MM:SS`. Centralized to avoid
+#             format drift between docs, tests, and any future helper scripts.
+def runtime_minutes_to_hms(minutes: int) -> str:
+    """Convert integer minutes to SLURM-compatible ``HH:MM:SS`` string.
+
+    Examples:
+        >>> runtime_minutes_to_hms(30)
+        '00:30:00'
+        >>> runtime_minutes_to_hms(1440)
+        '24:00:00'
+    """
+    if minutes < 0:
+        raise ValueError(f"minutes must be non-negative, got {minutes}")
+    hours, mins = divmod(int(minutes), 60)
+    return f"{hours:02d}:{mins:02d}:00"
+
+
 # ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
@@ -132,7 +152,17 @@ def main() -> None:
         "--cores",
         type=int,
         default=80,
-        help="사용할 CPU 코어 수 (기본값: 80)",
+        help="사용할 CPU 코어 수 (기본값: 80, --cluster slurm 사용 시 무시됨)",
+    )
+    parser.add_argument(
+        "--cluster",
+        choices=["none", "slurm"],
+        default="none",
+        help=(
+            "실행 백엔드 선택 (기본값: none = 로컬 --cores). "
+            "'slurm' 사용 시 workflow/profiles/slurm 프로파일이 적용되며 "
+            "sbatch가 PATH에 있어야 합니다."
+        ),
     )
     parser.add_argument(
         "--dry-run", "-n",
@@ -193,8 +223,21 @@ def main() -> None:
         "snakemake",
         "--snakefile", "workflow/Snakefile",
         "--config", f"stage={args.stage}",
-        "--cores", str(args.cores),
     ]
+
+    if args.cluster == "slurm":
+        # Validate sbatch is available — fail fast with a clear message rather
+        # than letting snakemake hit a cryptic plugin error mid-pipeline.
+        if shutil.which("sbatch") is None:
+            _die(
+                "sbatch가 PATH에서 검출되지 않았습니다. SLURM 클러스터 노드에서 "
+                "실행하거나 SLURM 클라이언트 도구를 설치하세요."
+            )
+        cmd.extend(["--profile", "workflow/profiles/slurm"])
+        print("[run.py]    Running on SLURM cluster (profile: workflow/profiles/slurm)")
+    else:
+        cmd.extend(["--cores", str(args.cores)])
+
     if args.dry_run:
         cmd.append("--dry-run")
     if args.snakemake_args:
