@@ -1,3 +1,0 @@
-sample_id	readgroup	fq1	fq2
-ERR194146	ERR194146	/home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/test_data/ERR194146_1.fastq.gz	/home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/test_data/ERR194146_2.fastq.gz
-sample	sample	/home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/test_data/sample_R1.fastq.gz	/home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/test_data/sample_R2.fastq.gz
