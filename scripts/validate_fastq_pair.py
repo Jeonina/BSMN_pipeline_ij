@@ -207,9 +207,7 @@ def validate_pair(r1: Path, r2: Path, quick: bool = False) -> ValidationReport:
     if n1_first != n2_first:
         return ValidationReport(
             ok=False,
-            message=(
-                f"first-record read name mismatch: R1={n1_first!r} vs R2={n2_first!r}"
-            ),
+            message=(f"first-record read name mismatch: R1={n1_first!r} vs R2={n2_first!r}"),
         )
 
     suffix = " (quick mode)" if quick else ""

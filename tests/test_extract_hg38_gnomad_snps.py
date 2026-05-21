@@ -165,9 +165,7 @@ class TestCli:
         vcf = tmp_path / "in.vcf.gz"
         out = tmp_path / "out.txt.gz"
         write_vcf_gz(vcf, [])
-        result = run_cli(
-            "--input", str(vcf), "--output", str(out), "--af-threshold", "0.001"
-        )
+        result = run_cli("--input", str(vcf), "--output", str(out), "--af-threshold", "0.001")
         assert result.returncode == 0, result.stderr
         assert out.exists()
         assert read_output(out) == []
@@ -190,9 +188,7 @@ class TestCli:
                 "chr1\t500\t.\tG\tA\t.\t.\tAF=0.0005",
             ],
         )
-        result = run_cli(
-            "--input", str(vcf), "--output", str(out), "--af-threshold", "0.001"
-        )
+        result = run_cli("--input", str(vcf), "--output", str(out), "--af-threshold", "0.001")
         assert result.returncode == 0, result.stderr
         rows = read_output(out)
         assert rows == [
@@ -206,9 +202,12 @@ class TestCli:
         out = tmp_path / "out.txt.gz"
         write_vcf_gz(vcf, ["chr1\t100\t.\tA\tC\t.\t.\tAF=0.05"])
         result = run_cli(
-            "--input", str(vcf),
-            "--output", str(out),
-            "--af-threshold", "0.001",
+            "--input",
+            str(vcf),
+            "--output",
+            str(out),
+            "--af-threshold",
+            "0.001",
             "--no-strip-chr",
         )
         assert result.returncode == 0, result.stderr
@@ -217,9 +216,12 @@ class TestCli:
     def test_missing_input_file_nonzero_exit(self, tmp_path: Path):
         out = tmp_path / "out.txt.gz"
         result = run_cli(
-            "--input", str(tmp_path / "does_not_exist.vcf.gz"),
-            "--output", str(out),
-            "--af-threshold", "0.001",
+            "--input",
+            str(tmp_path / "does_not_exist.vcf.gz"),
+            "--output",
+            str(out),
+            "--af-threshold",
+            "0.001",
         )
         assert result.returncode != 0
         assert not out.exists() or out.stat().st_size == 0
@@ -227,14 +229,10 @@ class TestCli:
     def test_speed_regression_under_one_second(self, tmp_path: Path):
         vcf = tmp_path / "in.vcf.gz"
         out = tmp_path / "out.txt.gz"
-        body = [
-            f"chr1\t{1000 + i}\t.\tA\tC\t.\t.\tAF=0.05" for i in range(1000)
-        ]
+        body = [f"chr1\t{1000 + i}\t.\tA\tC\t.\t.\tAF=0.05" for i in range(1000)]
         write_vcf_gz(vcf, body)
         t0 = time.perf_counter()
-        result = run_cli(
-            "--input", str(vcf), "--output", str(out), "--af-threshold", "0.001"
-        )
+        result = run_cli("--input", str(vcf), "--output", str(out), "--af-threshold", "0.001")
         elapsed = time.perf_counter() - t0
         assert result.returncode == 0, result.stderr
         assert len(read_output(out)) == 1000

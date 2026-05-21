@@ -36,6 +36,7 @@ from make_samples_tsv import build_table, find_r2, write_tsv  # noqa: E402
 # Helpers
 # ─────────────────────────────────────────────
 
+
 def _row_for_pair(r1: Path, r2: Path, pattern: str | None) -> dict:
     """Build a single samples.tsv row from an explicit R1/R2 pair.
 
@@ -122,6 +123,7 @@ def runtime_minutes_to_hms(minutes: int) -> str:
 # Main
 # ─────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="BSMN 파이프라인 — 한 줄 실행",
@@ -164,7 +166,8 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--dry-run", "-n",
+        "--dry-run",
+        "-n",
         action="store_true",
         dest="dry_run",
         help="Snakemake dry-run (실제 실행하지 않고 계획만 출력)",
@@ -172,7 +175,8 @@ def main() -> None:
 
     # ── 샘플 탐색 옵션 ───────────────────────────────────────────────────────
     parser.add_argument(
-        "--recursive", "-r",
+        "--recursive",
+        "-r",
         action="store_true",
         help="FASTQ 디렉토리를 하위 폴더까지 재귀 탐색",
     )
@@ -220,8 +224,10 @@ def main() -> None:
     # ── 3. Snakemake 실행 ───────────────────────────────────────────────────
     cmd = [
         "snakemake",
-        "--snakefile", "workflow/Snakefile",
-        "--config", f"stage={args.stage}",
+        "--snakefile",
+        "workflow/Snakefile",
+        "--config",
+        f"stage={args.stage}",
     ]
 
     if args.cluster == "slurm":

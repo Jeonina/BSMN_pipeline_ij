@@ -52,12 +52,8 @@ def _make_gz(path: Path) -> None:
 def test_write_tsv_uses_overwrite_mode(tmp_path: Path) -> None:
     out = tmp_path / "samples.tsv"
 
-    first = [
-        {"sample_id": "S1", "readgroup": "RG1", "fq1": "/a/1.fq.gz", "fq2": "/a/2.fq.gz"}
-    ]
-    second = [
-        {"sample_id": "S2", "readgroup": "RG2", "fq1": "/b/1.fq.gz", "fq2": "/b/2.fq.gz"}
-    ]
+    first = [{"sample_id": "S1", "readgroup": "RG1", "fq1": "/a/1.fq.gz", "fq2": "/a/2.fq.gz"}]
+    second = [{"sample_id": "S2", "readgroup": "RG2", "fq1": "/b/1.fq.gz", "fq2": "/b/2.fq.gz"}]
 
     mst.write_tsv(first, str(out))
     mst.write_tsv(second, str(out))
@@ -80,9 +76,7 @@ def test_write_tsv_atomically_replaces_file(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    new_rows = [
-        {"sample_id": "NEW", "readgroup": "NEW", "fq1": "/y/1.fq.gz", "fq2": "/y/2.fq.gz"}
-    ]
+    new_rows = [{"sample_id": "NEW", "readgroup": "NEW", "fq1": "/y/1.fq.gz", "fq2": "/y/2.fq.gz"}]
     mst.write_tsv(new_rows, str(out))
 
     text = out.read_text(encoding="utf-8")
@@ -130,14 +124,10 @@ def test_resolve_inputs_two_files_returns_only_specified_pair(tmp_path: Path) ->
         _make_gz(p)
 
     run_mod = _load_run_module()
-    rows = run_mod._resolve_inputs(
-        [str(a_r1), str(a_r2)], recursive=False, pattern=None
-    )
+    rows = run_mod._resolve_inputs([str(a_r1), str(a_r2)], recursive=False, pattern=None)
 
     sample_ids = {r["sample_id"] for r in rows}
-    assert sample_ids == {"ERR194146"}, (
-        f"Expected only ERR194146, got {sample_ids}"
-    )
+    assert sample_ids == {"ERR194146"}, f"Expected only ERR194146, got {sample_ids}"
 
 
 # ---------------------------------------------------------------------------

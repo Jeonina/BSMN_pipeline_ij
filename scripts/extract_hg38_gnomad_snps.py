@@ -128,9 +128,7 @@ def extract(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with gzip.open(input_path, "rt") as src, gzip.open(
-        output_path, "wt", compresslevel=6
-    ) as dst:
+    with gzip.open(input_path, "rt") as src, gzip.open(output_path, "wt", compresslevel=6) as dst:
         for line in src:
             stats["lines"] += 1
             if not line or line.startswith("#"):

@@ -406,6 +406,4 @@ def test_quick_mode_speed_budget(tmp_path: Path) -> None:
     elapsed = time.monotonic() - start
 
     assert report.ok, f"Expected OK, got: {report.message}"
-    assert elapsed < 5.0, (
-        f"Quick mode took {elapsed:.2f}s on ~1 MB pair (budget 5 s)"
-    )
+    assert elapsed < 5.0, f"Quick mode took {elapsed:.2f}s on ~1 MB pair (budget 5 s)"

@@ -115,11 +115,13 @@ def test_run_py_cluster_slurm_invokes_profile() -> None:
     # Patch input resolution to bypass sample TSV building.
     fake_rows = [{"sample_id": "s1", "readgroup": "rg", "fq1": "/x/r1.fq", "fq2": "/x/r2.fq"}]
 
-    with patch.object(run_module, "_resolve_inputs", return_value=fake_rows), \
-         patch.object(run_module, "write_tsv"), \
-         patch("subprocess.run", side_effect=fake_run), \
-         patch("shutil.which", return_value="/usr/bin/sbatch"), \
-         patch.object(sys, "argv", ["run.py", "/data/fq/", "--cluster", "slurm"]):
+    with (
+        patch.object(run_module, "_resolve_inputs", return_value=fake_rows),
+        patch.object(run_module, "write_tsv"),
+        patch("subprocess.run", side_effect=fake_run),
+        patch("shutil.which", return_value="/usr/bin/sbatch"),
+        patch.object(sys, "argv", ["run.py", "/data/fq/", "--cluster", "slurm"]),
+    ):
         with pytest.raises(SystemExit) as ei:
             run_module.main()
         assert ei.value.code == 0
@@ -147,11 +149,13 @@ def test_run_py_cluster_slurm_fails_without_sbatch() -> None:
         captured_err.append(msg)
         raise SystemExit(1)
 
-    with patch.object(run_module, "_resolve_inputs", return_value=fake_rows), \
-         patch.object(run_module, "write_tsv"), \
-         patch.object(run_module, "_die", side_effect=fake_die), \
-         patch("shutil.which", return_value=None), \
-         patch.object(sys, "argv", ["run.py", "/data/fq/", "--cluster", "slurm"]):
+    with (
+        patch.object(run_module, "_resolve_inputs", return_value=fake_rows),
+        patch.object(run_module, "write_tsv"),
+        patch.object(run_module, "_die", side_effect=fake_die),
+        patch("shutil.which", return_value=None),
+        patch.object(sys, "argv", ["run.py", "/data/fq/", "--cluster", "slurm"]),
+    ):
         with pytest.raises(SystemExit) as ei:
             run_module.main()
         # Expect non-zero exit code AND error message about sbatch
@@ -178,10 +182,12 @@ def test_run_py_no_cluster_flag_uses_local_cores() -> None:
 
     fake_rows = [{"sample_id": "s1", "readgroup": "rg", "fq1": "/x/r1.fq", "fq2": "/x/r2.fq"}]
 
-    with patch.object(run_module, "_resolve_inputs", return_value=fake_rows), \
-         patch.object(run_module, "write_tsv"), \
-         patch("subprocess.run", side_effect=fake_run), \
-         patch.object(sys, "argv", ["run.py", "/data/fq/", "--cores", "8"]):
+    with (
+        patch.object(run_module, "_resolve_inputs", return_value=fake_rows),
+        patch.object(run_module, "write_tsv"),
+        patch("subprocess.run", side_effect=fake_run),
+        patch.object(sys, "argv", ["run.py", "/data/fq/", "--cores", "8"]),
+    ):
         with pytest.raises(SystemExit) as ei:
             run_module.main()
         assert ei.value.code == 0
