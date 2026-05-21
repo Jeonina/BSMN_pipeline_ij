@@ -55,7 +55,7 @@ calling:
 # -- Filtering parameters -----------------------------------------------------
 filtering:
   gnomad:
-    snps: "resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
+    snps: "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
     af_threshold: 0.001
 
   vaf:

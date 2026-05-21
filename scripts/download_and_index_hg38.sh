@@ -191,7 +191,38 @@ fi
 
 echo "[Step 5] Done."
 
-# ---- 6. File listing ------------------------------------------------------
+# ---- 6. gnomAD hg38 SNP lookup (M-FIX-004) --------------------------------
+#
+# The germline_filter rule consumes a flat lookup table
+# (chrom\tpos\tref\talt, gzipped) derived from af-only-gnomad.hg38.vcf.gz —
+# the same hg38 resource Mutect2 uses as --germline-resource. Generating the
+# lookup from the hg38 VCF guarantees the lookup coordinates match Mutect2's
+# calls. Prior to M-FIX-004 the pipeline shipped an hg19-coordinate lookup
+# (gnomAD.r2.1.1.AFover0.001.snps.txt.gz), which let ~99% of common germline
+# variants leak through germline_filter.
+
+echo ""
+echo "[Step 6] Generating gnomAD hg38 SNP lookup..."
+
+GNOMAD_VCF="af-only-gnomad.hg38.vcf.gz"
+GNOMAD_LOOKUP="gnomAD.hg38.AFover0.001.snps.txt.gz"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ ! -f "$GNOMAD_VCF" ]]; then
+  echo "  [SKIP] $GNOMAD_VCF not present in $(pwd); copy it here and re-run to build the lookup"
+elif [[ -f "$GNOMAD_LOOKUP" ]]; then
+  echo "  [SKIP] $GNOMAD_LOOKUP already exists"
+else
+  echo "  Building $GNOMAD_LOOKUP from $GNOMAD_VCF ..."
+  python3 "${SCRIPT_DIR}/extract_hg38_gnomad_snps.py" \
+    --input "$GNOMAD_VCF" \
+    --output "$GNOMAD_LOOKUP" \
+    --af-threshold 0.001
+fi
+
+echo "[Step 6] Done."
+
+# ---- 7. File listing ------------------------------------------------------
 
 echo ""
 echo "============================================="
