@@ -56,16 +56,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
-      # NOTE (M1a): the --cov-fail-under=85 threshold reflects AC-11's
-      # repo-wide target and will not pass until M3/M4/M5/M6 land. M1a
-      # ships only the validators + scaffolding; this job is allowed to
-      # be red on M1a per the spec (`§5 M1a Exit criteria`: "AC-02/AC-03
-      # are wired in the CI workflow but may still fail on the broader
-      # codebase").
+      # Coverage threshold is configured in pyproject.toml under
+      # [tool.coverage.report].fail_under. The omit list there excludes
+      # bio-tool wrapper scripts that cannot be unit-tested without the
+      # external toolchain (apptainer/bwa/gatk). See pyproject.toml for
+      # the rationale and re-evaluation guidance.
       - name: Pytest
         run: |
           pytest \
             -m "not integration" \
             --cov=bsmn_pipeline \
-            --cov=scripts \
-            --cov-fail-under=85
+            --cov=scripts

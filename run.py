@@ -25,13 +25,12 @@ import argparse
 import shutil
 import subprocess
 import sys
-import os
 from pathlib import Path
 
 # scripts/ 디렉토리를 경로에 추가 (make_samples_tsv 직접 임포트)
 _SCRIPTS = Path(__file__).resolve().parent / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
-from make_samples_tsv import build_table, write_tsv, find_r2, R_MARKERS
+from make_samples_tsv import build_table, find_r2, write_tsv  # noqa: E402
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -243,7 +242,7 @@ def main() -> None:
     if args.snakemake_args:
         cmd.extend(args.snakemake_args.split())
 
-    print(f"\n[run.py] ② Snakemake 실행:")
+    print("\n[run.py] ② Snakemake 실행:")
     print(f"   {' '.join(cmd)}\n")
 
     result = subprocess.run(cmd)
