@@ -35,7 +35,9 @@ if not os.path.exists(_resolved):
     if not os.path.exists(_samples_tsv):
         raise WorkflowError(
             f"'{_samples_tsv}' not found.\n"
-            "Create samples.tsv with columns: sample_id, readgroup, fq1, fq2"
+            "Create samples.tsv with one of these schemas:\n"
+            "  fastq : sample_id, readgroup, fq1, fq2\n"
+            "  bam   : sample_id, bam   (bam value may be a .bam or .cram path)"
         )
     _scripts_dir = os.path.normpath(
         os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
@@ -84,9 +86,20 @@ rule all:
 
 # ---------------------------------------------------------------------------
 # Pipeline stages
+#
+# The first-stage rules file is selected by SCHEMA (from common.smk) so that
+# only ONE rule produces the calling input anchor
+# `results/mapping/{sample}/{sample}.cram`:
+#   * fastq schema → rules/mapping.smk  (FASTQ → CRAM mapping pipeline)
+#   * bam schema   → rules/ingest.smk   (external alignment → CRAM normalize)
+# This avoids an AmbiguousRuleException between apply_bqsr and ingest_alignment.
 # ---------------------------------------------------------------------------
 
-include: "rules/mapping.smk"
+if SCHEMA == "bam":
+    include: "rules/ingest.smk"
+else:
+    include: "rules/mapping.smk"
+
 include: "rules/calling.smk"
 include: "rules/filtering.smk"
 

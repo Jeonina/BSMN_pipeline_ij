@@ -30,7 +30,18 @@ with open(_containers_path) as _fh:
 # --- Sample table ------------------------------------------------------------
 
 samples_df = pd.read_csv(config["samples"], sep="\t", dtype=str)
-samples_df = samples_df.set_index(["sample_id", "readgroup"], drop=False)
+
+# Detect input schema from the columns. The bam schema (sample_id, bam) drives
+# external-alignment ingest; the fastq schema (sample_id, readgroup, fq1, fq2)
+# drives the FASTQ→CRAM mapping pipeline. SCHEMA selects which rules file the
+# Snakefile includes and which helpers below are exercised.
+if "bam" in samples_df.columns and "fq1" not in samples_df.columns:
+    SCHEMA = "bam"
+    # One row per sample_id; do NOT index by readgroup (bam has none).
+    samples_df = samples_df.set_index("sample_id", drop=False)
+else:
+    SCHEMA = "fastq"
+    samples_df = samples_df.set_index(["sample_id", "readgroup"], drop=False)
 
 SAMPLES = samples_df["sample_id"].unique().tolist()
 
@@ -41,7 +52,14 @@ REF = config["ref"]["fasta"]
 _calling_cfg = config.get("calling", {})
 CHROMOSOMES = _calling_cfg.get("chromosomes", [])
 
-# --- Mapping helpers ---------------------------------------------------------
+# --- Ingest helpers (bam schema) ---------------------------------------------
+
+def get_external_alignment(wildcards):
+    """Return the external BAM/CRAM path for a sample (bam schema only)."""
+    return samples_df.loc[wildcards.sample, "bam"]
+
+
+# --- Mapping helpers (fastq schema) ------------------------------------------
 
 def get_fastqs(wildcards):
     """Return fq1, fq2 for a given sample + readgroup."""

@@ -6,8 +6,12 @@
 
 # -- Sample information -------------------------------------------------------
 samples: config/samples.tsv
-# TSV format: sample_id<TAB>bam (for calling/filtering)
-#         or: sample_id<TAB>fq1<TAB>fq2<TAB>platform<TAB>readgroup (for mapping)
+# Two supported schemas (auto-detected by column names):
+#   bam mode   : sample_id<TAB>bam    — pre-aligned BAM or CRAM; runs calling/
+#                filtering directly without re-mapping. See config/samples.bam.example.tsv
+#                and config/config.chr20.yaml for an end-to-end chr20 example.
+#   fastq mode : sample_id<TAB>readgroup<TAB>fq1<TAB>fq2 — raw FASTQ; runs the
+#                full FASTQ -> CRAM mapping pipeline (rules/mapping.smk).
 
 # -- Pipeline stage to run ----------------------------------------------------
 # Options: "mapping", "calling", "filtering", "all"

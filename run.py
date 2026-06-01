@@ -30,7 +30,15 @@ from pathlib import Path
 # scripts/ 디렉토리를 경로에 추가 (make_samples_tsv 직접 임포트)
 _SCRIPTS = Path(__file__).resolve().parent / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
-from make_samples_tsv import build_table, find_r2, write_tsv  # noqa: E402
+from make_samples_tsv import build_bam_row, build_table, find_r2, write_tsv  # noqa: E402
+
+# Recognized pre-aligned input extensions (BAM-mode trigger).
+_ALIGNMENT_EXTS: tuple[str, ...] = (".bam", ".cram")
+
+
+def _is_alignment(path: Path) -> bool:
+    """True if the path names a pre-aligned BAM/CRAM file."""
+    return path.suffix.lower() in _ALIGNMENT_EXTS
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -61,8 +69,25 @@ def _row_for_pair(r1: Path, r2: Path, pattern: str | None) -> dict:
 
 
 def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> list[dict]:
-    """입력 형태를 자동 판별하고 샘플 row 리스트를 반환."""
+    """입력 형태를 자동 판별하고 샘플 row 리스트를 반환.
+
+    BAM-mode detection runs BEFORE the FASTQ cases so a pre-aligned
+    ``.bam``/``.cram`` is never misread as an R1 FASTQ. FASTQ behavior is
+    unchanged when no alignment input is present.
+    """
     p0 = Path(inputs[0])
+
+    # Case 0a: single pre-aligned BAM/CRAM file → one bam-mode row.
+    if len(inputs) == 1 and p0.is_file() and _is_alignment(p0):
+        return [build_bam_row(p0, pattern=pattern)]
+
+    # Case 0b: directory containing BAM/CRAM (and no FASTQ) → one row per alignment.
+    if len(inputs) == 1 and p0.is_dir():
+        alignments = sorted(
+            f for f in p0.iterdir() if f.is_file() and _is_alignment(f)
+        )
+        if alignments:
+            return [build_bam_row(f, pattern=pattern) for f in alignments]
 
     # Case 1: 디렉토리 — scan all R1 files in the directory
     if len(inputs) == 1 and p0.is_dir():

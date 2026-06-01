@@ -296,6 +296,38 @@ def build_table(
     return rows
 
 
+def build_bam_row(
+    alignment_path: Path, pattern: str | None = None
+) -> dict[str, str]:
+    """Build a single bam-mode row from a pre-aligned ``.bam``/``.cram`` path.
+
+    The ``bam`` value may be either a BAM or a CRAM path (the ingest rule
+    normalizes both to CRAM downstream). ``sample_id`` is derived from the
+    filename stem (extension stripped). If ``pattern`` is supplied, its named
+    group ``sample_id`` is matched against the stem; on no match the full stem
+    is used as a fallback.
+    """
+    stem = alignment_path.name
+    for ext in (".bam", ".cram"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+
+    sample_id = stem
+    if pattern:
+        m = re.match(pattern, stem)
+        if m and m.groupdict().get("sample_id"):
+            sample_id = m.group("sample_id")
+        else:
+            print(
+                f"  WARNING: --pattern did not match stem '{stem}'; "
+                "using full stem as sample_id.",
+                file=sys.stderr,
+            )
+
+    return {"sample_id": sample_id, "bam": str(alignment_path.resolve())}
+
+
 def print_table(rows: list[dict[str, str]]) -> None:
     """Pretty-print the table to stdout."""
     header = f"{'sample_id':<20} {'readgroup':<20} {'fq1'}"
@@ -310,13 +342,30 @@ def print_table(rows: list[dict[str, str]]) -> None:
     print(f"  {len(rows)} readgroup(s) across {sample_count} sample(s)\n")
 
 
+def _ordered_columns(rows: list[dict[str, str]]) -> list[str]:
+    """Derive output columns from the row keys, sample_id always first.
+
+    Schema-agnostic: works for both the fastq schema
+    (sample_id, readgroup, fq1, fq2) and the bam schema (sample_id, bam).
+    Column order follows first-row insertion order, with ``sample_id`` forced
+    to the front so downstream readers can rely on it.
+    """
+    first = rows[0]
+    cols = list(first.keys())
+    if "sample_id" in cols:
+        cols.remove("sample_id")
+        cols.insert(0, "sample_id")
+    return cols
+
+
 def write_tsv(rows: list[dict[str, str]], output: str) -> None:
-    """Write rows to a TSV file."""
+    """Write rows to a TSV file using the schema implied by the row keys."""
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+    columns = _ordered_columns(rows)
     with open(output, "w") as fh:
-        fh.write("sample_id\treadgroup\tfq1\tfq2\n")
+        fh.write("\t".join(columns) + "\n")
         for r in rows:
-            fh.write(f"{r['sample_id']}\t{r['readgroup']}\t{r['fq1']}\t{r['fq2']}\n")
+            fh.write("\t".join(r[c] for c in columns) + "\n")
     print(f"[make_samples_tsv] Written: {output}  ({len(rows)} rows)")
 
 

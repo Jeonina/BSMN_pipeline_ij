@@ -1,0 +1,83 @@
+# =============================================================================
+# BSMN Somatic Variant Calling Pipeline - chr20 Validation Config
+# =============================================================================
+# Single-chromosome (chr20) calling config for validating the external-alignment
+# (BAM/CRAM) ingest path end-to-end on the cluster. Intended for use with a
+# bam-schema samples.tsv (sample_id<TAB>bam).
+#
+# Usage:
+#   snakemake --snakefile workflow/Snakefile \
+#             --configfile config/config.chr20.yaml \
+#             --cores 8
+#
+# The ingest step normalizes the external alignment into
+# results/mapping/{sample}/{sample}.cram; calling then runs on chr20 only.
+
+# -- Sample information -------------------------------------------------------
+samples: config/samples.tsv
+# TSV format: sample_id<TAB>bam (for calling/filtering)
+#         or: sample_id<TAB>readgroup<TAB>fq1<TAB>fq2 (for mapping)
+
+# -- Pipeline stage to run ----------------------------------------------------
+stage: "calling"
+
+# -- Reference genome ---------------------------------------------------------
+ref:
+  build: "hg38"
+  fasta: "resources/hg38/Homo_sapiens_assembly38.fasta"
+  dict:  "resources/hg38/Homo_sapiens_assembly38.dict"
+
+# -- Known sites (for BQSR; unused in ingest mode but kept for schema parity) -
+known_sites:
+  dbsnp:   "resources/hg38/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
+  mills:   "resources/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
+  indels:  "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
+
+# -- Mapping parameters (unused in ingest mode) -------------------------------
+mapping:
+  bwa_threads: 16
+  sort_threads: 4
+  sort_memory: "4GB"
+  markdup_memory: "16G"
+  output_format: "cram"
+
+# -- Mutect2 calling parameters (chr20 only) ----------------------------------
+calling:
+  caller: "mutect2"
+
+  chromosomes:
+    - chr20
+
+  germline_resource: "resources/hg38/af-only-gnomad.hg38.vcf.gz"
+  contamination_resource: "resources/hg38/small_exac_common_3.hg38.vcf.gz"
+
+  pon:
+    use: false
+    vcf: ""
+
+  mutect2_extra: ""
+  filter_extra: "--min-reads-per-strand 1"
+
+# -- Filtering parameters -----------------------------------------------------
+filtering:
+  gnomad:
+    snps: "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
+    af_threshold: 0.001
+
+  vaf:
+    min_alt_count: 5
+    p_binom_threshold: 1.0e-6
+    min_mapq: 20
+    min_baseq: 20
+
+  pon_mask:
+    fasta: "resources/hg38/PON.q20q20.05.5.fa"
+
+  mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.bed"
+
+# -- SLURM resource defaults (overridden by profiles/slurm/config.yaml) -------
+resources:
+  default:
+    mem_mb: 8000
+    threads: 1
+    runtime: 120
