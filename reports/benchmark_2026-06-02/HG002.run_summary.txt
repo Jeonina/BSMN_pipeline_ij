@@ -1,0 +1,20 @@
+======================================================================
+Pipeline Run Summary  —  sample: HG002
+======================================================================
+Step                    Elapsed  Details
+----------------------------------------------------------------------
+  bwa_map                     —  (log not found)
+  mark_dup                    —  (log not found)
+  mutect2_scatter             —  (log not found)
+  learn_orientation       24.0s  
+  get_pileup              23.1m  
+  calc_contamination       0.6s  contamination=0.0000
+  merge_vcfs               1.8s  
+  filter_mutect            1.3m  total_called=656,472
+  accessibility            4.8s  3,564 → 666 (18.7%)
+  germline                  N/A  kept=638
+  vaf                      1.3m  638 → 31 (4.9%)  low_alt=12 high_p=595 no_cov=0
+  pon_mask                 1.7s  kept=30
+----------------------------------------------------------------------
+  TOTAL                   26.3m
+======================================================================

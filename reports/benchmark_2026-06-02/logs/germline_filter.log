@@ -1,0 +1,49 @@
+2026-06-02 15:36:14,945 [germline_filter] INFO: ================================================================
+2026-06-02 15:36:14,945 [germline_filter] INFO: START germline_filter
+2026-06-02 15:36:14,945 [germline_filter] INFO: input_file=results/filtering/HG002/HG002.accessible.txt
+2026-06-02 15:36:14,945 [germline_filter] INFO: gnomad_variants=resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz
+2026-06-02 15:36:14,945 [germline_filter] INFO: gnomad_file_size=113573406 bytes
+2026-06-02 15:36:14,945 [germline_filter] INFO: criterion: remove variants present in gnomAD (AF > 0.001)
+2026-06-02 15:36:14,945 [germline_filter] INFO: ================================================================
+2026-06-02 15:36:14,946 [germline_filter] INFO: Loading gnomAD variant set...
+2026-06-02 15:36:38,714 [germline_filter] INFO: gnomAD variants loaded: 30415379 entries in 23.8 seconds
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:393023 G>T
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:393192 C>A
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:4102389 C>T
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:16241160 G>A
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:16241173 A>C
+2026-06-02 15:36:38,714 [germline_filter] DEBUG: REMOVED germline: chr20:20908043 G>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:25428234 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:38172180 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42244014 G>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42420793 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42459535 G>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42472028 C>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42576339 C>G
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:42865389 T>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:43142473 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:43492060 T>C
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:43533142 A>G
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:43752936 A>C
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:45578660 T>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:45578686 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:46969925 G>A
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:47861070 G>C
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:60507600 C>T
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:62407443 G>C
+2026-06-02 15:36:38,715 [germline_filter] DEBUG: REMOVED germline: chr20:62407449 A>G
+2026-06-02 15:36:38,716 [germline_filter] DEBUG: REMOVED germline: chr20:62824314 A>G
+2026-06-02 15:36:38,716 [germline_filter] DEBUG: REMOVED germline: chr20:63094259 C>T
+2026-06-02 15:36:38,716 [germline_filter] DEBUG: REMOVED germline: chr20:63094263 A>G
+2026-06-02 15:36:38,716 [germline_filter] INFO: ================================================================
+2026-06-02 15:36:38,716 [germline_filter] INFO: RESULTS:
+2026-06-02 15:36:38,716 [germline_filter] INFO:   variants_input=666
+2026-06-02 15:36:38,716 [germline_filter] INFO:   variants_kept=638
+2026-06-02 15:36:38,716 [germline_filter] INFO:   variants_removed=28 (germline)
+2026-06-02 15:36:38,716 [germline_filter] INFO:   lines_skipped=0 (malformed)
+2026-06-02 15:36:38,716 [germline_filter] INFO:   comment_lines=0
+2026-06-02 15:36:38,716 [germline_filter] INFO:   pass_rate=95.8%
+2026-06-02 15:36:38,716 [germline_filter] INFO:   filter_time=0.0 seconds
+2026-06-02 15:36:38,716 [germline_filter] INFO:   total_time=23.8 seconds
+2026-06-02 15:36:38,716 [germline_filter] INFO: END germline_filter
+2026-06-02 15:36:38,716 [germline_filter] INFO: ================================================================
