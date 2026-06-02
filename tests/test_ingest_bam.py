@@ -358,6 +358,73 @@ def test_validate_against_dict_reports_mismatch(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 4b. validate_alignment_ref — read-group decision (inject vs keep)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_rg_lines_extracts_sm() -> None:
+    header = "\n".join(
+        [
+            "@HD\tVN:1.6",
+            "@SQ\tSN:chr20\tLN:64444167",
+            "@RG\tID:rg1\tSM:HG002\tPL:ILLUMINA",
+            "@RG\tID:rg2\tSM:OTHER",
+        ]
+    )
+    rgs = var.parse_rg_lines(header)
+    # One dict per @RG line, parsed into key/value tags.
+    assert {rg.get("SM") for rg in rgs} == {"HG002", "OTHER"}
+    assert rgs[0]["ID"] == "rg1"
+
+
+def test_rg_decision_no_read_group_injects() -> None:
+    """NHGRI novoalign case: no @RG at all → inject."""
+    header = "@HD\tVN:1.6\n@SQ\tSN:chr20\tLN:64444167\n"
+    assert var.decide_read_group(header, "HG002") == "inject"
+
+
+def test_rg_decision_rg_without_sm_injects() -> None:
+    """An @RG line lacking an SM tag → inject."""
+    header = "@HD\tVN:1.6\n@RG\tID:rg1\tPL:ILLUMINA\n"
+    assert var.decide_read_group(header, "HG002") == "inject"
+
+
+def test_rg_decision_sm_matches_sample_is_ok() -> None:
+    """An @RG whose SM equals the sample → keep current behavior."""
+    header = "@HD\tVN:1.6\n@RG\tID:rg1\tSM:HG002\tPL:ILLUMINA\n"
+    assert var.decide_read_group(header, "HG002") == "ok"
+
+
+def test_rg_decision_sm_mismatch_injects() -> None:
+    """An @RG present but SM != sample → inject (override to sample)."""
+    header = "@HD\tVN:1.6\n@RG\tID:rg1\tSM:SOMEONE_ELSE\tPL:ILLUMINA\n"
+    assert var.decide_read_group(header, "HG002") == "inject"
+
+
+def test_rg_decision_multiple_rg_one_matches_is_ok() -> None:
+    """Multiple @RG lines, at least one SM matches → keep."""
+    header = (
+        "@HD\tVN:1.6\n"
+        "@RG\tID:rg1\tSM:OTHER\n"
+        "@RG\tID:rg2\tSM:HG002\n"
+    )
+    assert var.decide_read_group(header, "HG002") == "ok"
+
+
+def test_rg_decision_cli_prints_decision(tmp_path: Path, capsys) -> None:
+    """The --emit-rg-decision CLI mode prints exactly 'ok' or 'inject' to stdout."""
+    header_file = tmp_path / "header.sam"
+    header_file.write_text("@HD\tVN:1.6\n@SQ\tSN:chr20\tLN:64444167\n", encoding="utf-8")
+
+    rc = var.main(
+        ["--header", str(header_file), "--emit-rg-decision", "--sample", "HG002"]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "inject"
+
+
+# ---------------------------------------------------------------------------
 # 5. Cluster-only: snakemake -n dry-run on a tiny fixture
 # ---------------------------------------------------------------------------
 

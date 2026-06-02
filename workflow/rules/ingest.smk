@@ -11,9 +11,14 @@
 #   2. Sequence-dictionary compatibility vs the reference .dict — a shared
 #      contig with a different length aborts the run (scripts/validate_alignment_ref.py).
 #
-# Normalization:
-#   * .cram input  → symlink to the anchor path + ensure .crai exists.
-#   * .bam  input  → `samtools view -C -T REF` transcode to CRAM + index.
+# Read-group normalization (so Mutect2 `--tumor-sample {sample}` always matches):
+#   * decision == "ok"     → an @RG with SM=={sample} already exists; keep
+#       current behavior (symlink for .cram / `samtools view -C` for .bam).
+#   * decision == "inject" → no @RG, or @RG without SM, or SM != {sample};
+#       materialize a CRAM via `samtools addreplacerg` with a single read group
+#       ID:{sample} SM:{sample} LB:{sample} PL:ILLUMINA. This handles the NHGRI
+#       novoalign HG002 BAM which carries no @RG at all (Mutect2 would otherwise
+#       fail with "samples cannot be empty").
 #
 # All tools run inside the samtools Apptainer container (config/containers.yaml).
 # =============================================================================
@@ -73,25 +78,46 @@ rule ingest_alignment:
         _header=$(dirname {output.cram})/.{wildcards.sample}.header.sam
         apptainer exec {params.samtools_sif} samtools view -H {input.aln} > "$_header"
         python {params.validate_script} --header "$_header" --dict {params.ref_dict}
-        rm -f "$_header"
 
-        # 3. Normalize to the calling input anchor (CRAM + .crai).
-        case "{input.aln}" in
-            *.cram)
-                echo "[ingest_alignment] input is CRAM — linking to anchor"
-                ln -sf "$(readlink -f {input.aln})" {output.cram}
-                ;;
-            *.bam)
-                echo "[ingest_alignment] input is BAM — transcoding to CRAM"
-                apptainer exec {params.samtools_sif} samtools view \
-                    -@ {threads} -C -T {params.ref} \
-                    -o {output.cram} {input.aln}
-                ;;
-            *)
-                echo "[ingest_alignment] ERROR: unrecognized alignment extension" >&2
-                exit 1
-                ;;
-        esac
+        # 3. Read-group decision: does an @RG with SM=={wildcards.sample} exist?
+        _rg_decision=$(python {params.validate_script} \
+            --header "$_header" --emit-rg-decision --sample {wildcards.sample})
+        rm -f "$_header"
+        echo "[ingest_alignment] read_group_decision=$_rg_decision"
+
+        # 4. Normalize to the calling input anchor (CRAM + .crai).
+        if [ "$_rg_decision" = "inject" ]; then
+            # No usable SM tag — materialize a CRAM with a single read group so
+            # Mutect2 --tumor-sample {wildcards.sample} resolves. addreplacerg
+            # rewrites every record's RG, so a real CRAM is produced even when
+            # the input is already CRAM (a symlink would not carry the new RG).
+            echo "[ingest_alignment] WARNING: injecting/overriding read group so SM={wildcards.sample}"
+            echo "[ingest_alignment]          (input lacked a usable @RG with SM=={wildcards.sample})"
+            apptainer exec {params.samtools_sif} samtools addreplacerg \
+                -@ {threads} \
+                -r "ID:{wildcards.sample}\tSM:{wildcards.sample}\tLB:{wildcards.sample}\tPL:ILLUMINA" \
+                --output-fmt CRAM \
+                --reference {params.ref} \
+                -o {output.cram} {input.aln}
+        else
+            echo "[ingest_alignment] read group with SM={wildcards.sample} present — no RG rewrite"
+            case "{input.aln}" in
+                *.cram)
+                    echo "[ingest_alignment] input is CRAM — linking to anchor"
+                    ln -sf "$(readlink -f {input.aln})" {output.cram}
+                    ;;
+                *.bam)
+                    echo "[ingest_alignment] input is BAM — transcoding to CRAM"
+                    apptainer exec {params.samtools_sif} samtools view \
+                        -@ {threads} -C -T {params.ref} \
+                        -o {output.cram} {input.aln}
+                    ;;
+                *)
+                    echo "[ingest_alignment] ERROR: unrecognized alignment extension" >&2
+                    exit 1
+                    ;;
+            esac
+        fi
 
         apptainer exec {params.samtools_sif} samtools index {output.cram}
         _exit=$?

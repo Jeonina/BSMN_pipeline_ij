@@ -13,6 +13,14 @@ compares the ``@SQ`` lines of the alignment header against the reference Picard
   * Extra decoy/alt contigs present only in the alignment are OK.
   * Zero overlapping contig names means the references are unrelated → failure.
 
+It also decides whether the output CRAM needs a read group injected: external
+alignments may carry no ``@RG`` (e.g. the NHGRI novoalign HG002 BAM), or an
+``@RG`` whose ``SM`` does not match the pipeline sample id. Mutect2's
+``--tumor-sample {sample}`` matches against ``@RG SM`` tags, so a missing/
+mismatched ``SM`` aborts calling with "samples cannot be empty". The
+``--emit-rg-decision`` mode prints ``ok`` or ``inject`` for the ingest rule to
+branch on.
+
 This module is pure (string / file parsing) so it is unit-testable without
 samtools or apptainer. The alignment header itself is produced on the cluster
 via ``samtools view -H`` inside the samtools container and piped to ``--header``.
@@ -91,13 +99,57 @@ def validate_against_dict(header_text: str, dict_path: Path) -> list[str]:
     return check_compatibility(alignment, reference)
 
 
+def parse_rg_lines(header_text: str) -> list[dict[str, str]]:
+    """Parse ``@RG`` lines from a SAM header into a list of tag dicts.
+
+    Each returned dict maps two-letter tag codes to values, e.g.
+    ``{"ID": "rg1", "SM": "HG002", "PL": "ILLUMINA"}``. Malformed fields
+    without a ``KEY:VALUE`` shape are skipped.
+    """
+    read_groups: list[dict[str, str]] = []
+    for line in header_text.splitlines():
+        if not line.startswith("@RG"):
+            continue
+        tags: dict[str, str] = {}
+        for field in line.split("\t")[1:]:
+            key, sep, value = field.partition(":")
+            if sep and key:
+                tags[key] = value
+        read_groups.append(tags)
+    return read_groups
+
+
+def decide_read_group(header_text: str, sample: str) -> str:
+    """Decide whether the output CRAM needs a read group injected.
+
+    Returns:
+        ``"ok"``     — at least one ``@RG`` already has ``SM == sample``;
+                       the existing read group(s) are usable for Mutect2's
+                       ``--tumor-sample`` matching, so no rewrite is needed.
+        ``"inject"`` — no ``@RG`` at all, OR an ``@RG`` exists but none has an
+                       ``SM`` tag, OR no ``@RG`` has ``SM == sample``. The rule
+                       must materialize a CRAM with a single read group whose
+                       ``SM == sample`` so calling does not fail with
+                       "samples cannot be empty".
+    """
+    read_groups = parse_rg_lines(header_text)
+    for rg in read_groups:
+        if rg.get("SM") == sample:
+            return "ok"
+    return "inject"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="validate_alignment_ref",
         description=(
-            "Fail with a non-zero exit code if the alignment header @SQ lines "
-            "are incompatible with the reference .dict."
+            "Validate an external alignment header. Two modes:\n"
+            "  (default)            — fail (exit 1) if the @SQ lines are "
+            "incompatible with the reference .dict.\n"
+            "  --emit-rg-decision   — print 'ok' or 'inject' to stdout based on "
+            "whether a read group with SM=={sample} already exists."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--header",
@@ -107,15 +159,35 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dict",
         dest="dict_path",
-        required=True,
-        help="Path to the reference Picard .dict file.",
+        help="Path to the reference Picard .dict file (required unless --emit-rg-decision).",
+    )
+    parser.add_argument(
+        "--emit-rg-decision",
+        action="store_true",
+        help="Print read-group decision ('ok'|'inject') to stdout and exit 0.",
+    )
+    parser.add_argument(
+        "--sample",
+        help="Sample id to match against @RG SM tags (required with --emit-rg-decision).",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     header_text = Path(args.header).read_text(encoding="utf-8")
+
+    # Mode 2: read-group decision (stdout = 'ok' | 'inject').
+    if args.emit_rg_decision:
+        if not args.sample:
+            parser.error("--sample is required with --emit-rg-decision")
+        print(decide_read_group(header_text, args.sample))
+        return 0
+
+    # Mode 1: reference-dictionary compatibility.
+    if not args.dict_path:
+        parser.error("--dict is required unless --emit-rg-decision is given")
     errors = validate_against_dict(header_text, Path(args.dict_path))
     if errors:
         print("error: alignment is incompatible with the reference:", file=sys.stderr)
