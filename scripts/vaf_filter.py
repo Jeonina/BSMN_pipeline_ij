@@ -137,7 +137,12 @@ def pileup_base_counts(
     bases = _clean_bases(bases_raw)
 
     counts: dict[str, int] = {b: bases.count(b) for b in ("A", "a", "C", "c", "G", "g", "T", "t")}
-    depth = sum(counts.values()) + bases.count("*")
+    # Reference-matching reads are encoded as '.' (forward) / ',' (reverse) and
+    # MUST be included in depth — otherwise VAF = alt / (mismatches only) ~= 1.0
+    # for every real variant, collapsing the binomial test and discarding all
+    # true somatic calls. (@MX:REASON regression: HG002 chr20 vaf 638 -> 0.)
+    ref_matches = bases.count(".") + bases.count(",")
+    depth = ref_matches + sum(counts.values()) + bases.count("*")
     return depth, counts
 
 

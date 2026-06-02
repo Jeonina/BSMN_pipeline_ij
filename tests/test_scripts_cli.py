@@ -174,6 +174,23 @@ class TestPileupBaseCounts:
         assert counts["G"] == 1
         assert counts["g"] == 1
 
+    def test_depth_includes_reference_matches(self, pileup_base_counts):
+        """REGRESSION: depth must count reference-matching reads ('.'/',').
+
+        Repro of the HG002 chr20 benchmark failure: a true mosaic at chr20
+        (ref G, 31 alt T reads in 273x) was scored as VAF~0.94 because the
+        242 ref-matching reads ('.'/',') were excluded from depth, so the
+        binomial test gave p~1.0 and the VAF filter discarded every true
+        somatic call (vaf 638 -> 0, high_p=626).
+        """
+        ref_matches = "." * 121 + "," * 121  # 242 reads supporting ref allele
+        alt_reads = "T" * 16 + "t" * 15  # 31 reads supporting alt
+        mpileup_out = f"chr20\t47053475\tG\t273\t{ref_matches}{alt_reads}\tI\n"
+        with patch("subprocess.run", return_value=self._mock_run(mpileup_out)):
+            depth, counts = pileup_base_counts("s.cram", "ref.fa", "chr20", "47053475", "sam.sif")
+        assert counts["T"] + counts["t"] == 31
+        assert depth == 273  # not 31 — ref-matching reads count toward depth
+
 
 # =============================================================================
 # 4. vaf_filter — filter_variants (mocked pileup)
