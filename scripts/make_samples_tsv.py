@@ -296,9 +296,7 @@ def build_table(
     return rows
 
 
-def build_bam_row(
-    alignment_path: Path, pattern: str | None = None
-) -> dict[str, str]:
+def build_bam_row(alignment_path: Path, pattern: str | None = None) -> dict[str, str]:
     """Build a single bam-mode row from a pre-aligned ``.bam``/``.cram`` path.
 
     The ``bam`` value may be either a BAM or a CRAM path (the ingest rule
@@ -320,8 +318,7 @@ def build_bam_row(
             sample_id = m.group("sample_id")
         else:
             print(
-                f"  WARNING: --pattern did not match stem '{stem}'; "
-                "using full stem as sample_id.",
+                f"  WARNING: --pattern did not match stem '{stem}'; using full stem as sample_id.",
                 file=sys.stderr,
             )
 

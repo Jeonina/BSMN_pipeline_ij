@@ -95,9 +95,7 @@ def test_resolve_inputs_bam_sample_id_applies_pattern(tmp_path: Path) -> None:
     _touch(bam)
 
     run_mod = _load_run_module()
-    rows = run_mod._resolve_inputs(
-        [str(bam)], recursive=False, pattern=r"(?P<sample_id>[^.]+)"
-    )
+    rows = run_mod._resolve_inputs([str(bam)], recursive=False, pattern=r"(?P<sample_id>[^.]+)")
 
     assert rows[0]["sample_id"] == "HG002"
 
@@ -261,9 +259,7 @@ def test_auto_params_fastq_mode_unchanged(tmp_path: Path) -> None:
     # NovaSeq 6000 instrument id (A00xxx) → patterned flowcell.
     r1.write_text("@A00100:1:HXXX:1:1101:1000:1000 1:N:0:1\nACGT\n+\nIIII\n", encoding="utf-8")
     samples = tmp_path / "samples.tsv"
-    samples.write_text(
-        f"sample_id\treadgroup\tfq1\tfq2\nS1\tRG1\t{r1}\t{r1}\n", encoding="utf-8"
-    )
+    samples.write_text(f"sample_id\treadgroup\tfq1\tfq2\nS1\tRG1\t{r1}\t{r1}\n", encoding="utf-8")
     out = tmp_path / "resolved_params.yaml"
 
     params = auto_params.resolve_params_from_samples(str(samples), str(out))
@@ -403,11 +399,7 @@ def test_rg_decision_sm_mismatch_injects() -> None:
 
 def test_rg_decision_multiple_rg_one_matches_is_ok() -> None:
     """Multiple @RG lines, at least one SM matches → keep."""
-    header = (
-        "@HD\tVN:1.6\n"
-        "@RG\tID:rg1\tSM:OTHER\n"
-        "@RG\tID:rg2\tSM:HG002\n"
-    )
+    header = "@HD\tVN:1.6\n@RG\tID:rg1\tSM:OTHER\n@RG\tID:rg2\tSM:HG002\n"
     assert var.decide_read_group(header, "HG002") == "ok"
 
 
@@ -416,9 +408,7 @@ def test_rg_decision_cli_prints_decision(tmp_path: Path, capsys) -> None:
     header_file = tmp_path / "header.sam"
     header_file.write_text("@HD\tVN:1.6\n@SQ\tSN:chr20\tLN:64444167\n", encoding="utf-8")
 
-    rc = var.main(
-        ["--header", str(header_file), "--emit-rg-decision", "--sample", "HG002"]
-    )
+    rc = var.main(["--header", str(header_file), "--emit-rg-decision", "--sample", "HG002"])
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert out == "inject"
@@ -458,9 +448,7 @@ def test_ingest_dryrun_selects_ingest_not_mapping(tmp_path: Path) -> None:
         f"sample_id\tbam\nHG002\t{fake_bam}\n", encoding="utf-8"
     )
     var_out = workdir / "config" / "resolved_params.yaml"
-    auto_params.resolve_params_from_samples(
-        str(workdir / "config" / "samples.tsv"), str(var_out)
-    )
+    auto_params.resolve_params_from_samples(str(workdir / "config" / "samples.tsv"), str(var_out))
 
     # containers.yaml — only the keys the included rules reference.
     shutil.copy(PROJECT_ROOT / "config" / "containers.yaml", workdir / "config" / "containers.yaml")

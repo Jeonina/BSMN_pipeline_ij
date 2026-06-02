@@ -62,9 +62,7 @@ def parse_dict_contigs(dict_path: Path) -> dict[str, int]:
     return parse_sq_lines(dict_path.read_text(encoding="utf-8"))
 
 
-def check_compatibility(
-    alignment: dict[str, int], reference: dict[str, int]
-) -> list[str]:
+def check_compatibility(alignment: dict[str, int], reference: dict[str, int]) -> list[str]:
     """Return a list of human-readable error strings (empty == compatible).
 
     Compatibility rules are documented in the module docstring.

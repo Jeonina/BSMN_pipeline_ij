@@ -40,6 +40,7 @@ def _is_alignment(path: Path) -> bool:
     """True if the path names a pre-aligned BAM/CRAM file."""
     return path.suffix.lower() in _ALIGNMENT_EXTS
 
+
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
@@ -83,9 +84,7 @@ def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> 
 
     # Case 0b: directory containing BAM/CRAM (and no FASTQ) → one row per alignment.
     if len(inputs) == 1 and p0.is_dir():
-        alignments = sorted(
-            f for f in p0.iterdir() if f.is_file() and _is_alignment(f)
-        )
+        alignments = sorted(f for f in p0.iterdir() if f.is_file() and _is_alignment(f))
         if alignments:
             return [build_bam_row(f, pattern=pattern) for f in alignments]
 
