@@ -177,7 +177,9 @@ HEURISTICS = {
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--vcf", required=True, help="Mutect2 *.filtered.vcf.gz")
     p.add_argument("--candidates", required=True, help="final mosaic list (chr pos ref alt)")
     p.add_argument("--truth", default="", help="known true-positive coord, e.g. chr20:47053475")

@@ -94,7 +94,15 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
-  # C. PON mask
+  # C. Mayo filter (BSMN E-step: strand bias + repeat + multiallelic)
+  mayo:
+    max_repeat_n: 4         # reject if repeat_n >= this
+    max_repeat_length: 10   # reject if repeat_length >= this
+    min_strand_p: 0.05      # keep if p_poisson OR p_fisher >= this
+    min_mapq: 20
+    min_baseq: 20
+
+  # D. PON mask
   pon_mask:
     fasta: "resources/hg38/PON.q20q20.05.5.fa"
 
