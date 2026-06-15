@@ -77,6 +77,14 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
+  mosaicforecast:
+    model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
+    mode: "Refine"
+    read_length: 150
+    min_prob: 0.0
+    timeout: 300
+    retries: 5
+
   pon_mask:
     fasta: "resources/hg38/PON.q20q20.05.5.fa"
 

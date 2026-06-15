@@ -102,7 +102,19 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
-  # D. PON mask
+  # D. MosaicForecast filter (BSMN E-step: RF mosaic prediction)
+  #   Scripts + k24.umap.wg.bw ship inside the mosaicforecast image; the RF
+  #   model is cloned to resources/MosaicForecast/. Pick the model by depth
+  #   (250x for ~300x HG002; 200x for the brain WGS study).
+  mosaicforecast:
+    model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
+    mode: "Refine"
+    read_length: 150
+    min_prob: 0.0           # 0 = all mosaic calls; 0.6 = high-confidence only
+    timeout: 300            # per-variant feature-extraction timeout (s)
+    retries: 5
+
+  # E. PON mask
   pon_mask:
     fasta: "resources/hg38/PON.q20q20.05.5.fa"
 

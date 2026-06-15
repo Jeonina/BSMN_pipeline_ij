@@ -32,6 +32,7 @@ EXPECTED_FILTER_RULES = [
     "germline_filter",
     "vaf_filter",
     "mayo_filter",
+    "mosaicforecast_filter",
     "pon_mask_filter",
 ]
 

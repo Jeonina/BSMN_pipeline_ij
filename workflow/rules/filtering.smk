@@ -1,23 +1,25 @@
 # =============================================================================
 # Filtering rules: Mutect2-filtered VCF → final somatic SNV list
 #
-# Five sequential filters per PIPELINE.md:
-#   1. accessibility_filter  — 1KG strict mask (keeps only mask base == 'P')
-#   2. germline_filter       — removes gnomAD AF > 0.001 known germline variants
-#   3. vaf_filter            — binomial test p < 1e-6 AND alt_count >= 5
-#   4. mayo_filter           — BSMN E-step: strand bias + repeat + multiallelic
-#   5. pon_mask_filter       — IUPAC FASTA-based panel-of-normals mask
+# Six sequential filters per PIPELINE.md:
+#   1. accessibility_filter   — 1KG strict mask (keeps only mask base == 'P')
+#   2. germline_filter        — removes gnomAD AF > 0.001 known germline variants
+#   3. vaf_filter             — binomial test p < 1e-6 AND alt_count >= 5
+#   4. mayo_filter            — BSMN E-step: strand bias + repeat + multiallelic
+#   5. mosaicforecast_filter  — BSMN E-step: MosaicForecast RF mosaic prediction
+#   6. pon_mask_filter        — IUPAC FASTA-based panel-of-normals mask
 #
 # Resources are dynamically allocated based on system capabilities
 # (via config/resolved_params.yaml from scripts/auto_params.py).
 #
 # DAG (per sample):
 #   results/calling/{sample}/{sample}.filtered.vcf.gz
-#       → accessibility_filter  → {sample}.accessible.txt (temp)
-#       → germline_filter       → {sample}.germline_filtered.txt (temp)
-#       → vaf_filter            → {sample}.vaf_filtered.txt (temp)
-#       → mayo_filter           → {sample}.mayo_filtered.txt (temp)
-#       → pon_mask_filter       → {sample}.final.txt  ← final output
+#       → accessibility_filter   → {sample}.accessible.txt (temp)
+#       → germline_filter        → {sample}.germline_filtered.txt (temp)
+#       → vaf_filter             → {sample}.vaf_filtered.txt (temp)
+#       → mayo_filter            → {sample}.mayo_filtered.txt (temp)
+#       → mosaicforecast_filter  → {sample}.mosaicforecast_filtered.txt (temp)
+#       → pon_mask_filter        → {sample}.final.txt  ← final output
 # =============================================================================
 
 import os
@@ -239,6 +241,77 @@ SHIM
         """
 
 
+rule mosaicforecast_filter:
+    """
+    MosaicForecast filter — BSMN E.MosaicForecast.sh step.
+
+    Runs MosaicForecast read-level feature extraction + trained-RF prediction
+    (via the yanmei/mosaicforecast Apptainer image) on the mayo-passing
+    candidates and keeps only those predicted 'mosaic'. The MF scripts and the
+    k24 mappability bigwig live inside the image; the RF model is on the host
+    (cloned MosaicForecast repo). Apptainer auto-binds the project working dir,
+    so the reference/CRAM/model/temp paths resolve unchanged inside the
+    container. min_prob=0 keeps all mosaic calls (BSMN OUT_ALL); set 0.6 for
+    the high-confidence set (OUT_HC).
+    """
+    input:
+        txt="results/filtering/{sample}/{sample}.mayo_filtered.txt",
+        cram="results/mapping/{sample}/{sample}.cram",
+        crai="results/mapping/{sample}/{sample}.cram.crai",
+    output:
+        txt=temp("results/filtering/{sample}/{sample}.mosaicforecast_filtered.txt"),
+    params:
+        ref=REF,
+        bam_dir="results/mapping/{sample}",
+        workdir="results/filtering/{sample}/mf",
+        model=_filtering.get("mosaicforecast", {}).get(
+            "model", "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
+        ),
+        mode=_filtering.get("mosaicforecast", {}).get("mode", "Refine"),
+        read_length=_filtering.get("mosaicforecast", {}).get("read_length", 150),
+        min_prob=_filtering.get("mosaicforecast", {}).get("min_prob", 0.0),
+        timeout=_filtering.get("mosaicforecast", {}).get("timeout", 300),
+        retries=_filtering.get("mosaicforecast", {}).get("retries", 5),
+        mf_sif=CONTAINERS["mosaicforecast"]["sif"],
+        script=os.path.join(_SCRIPTS, "mosaicforecast_filter.py"),
+    log:
+        "logs/filtering/{sample}/mosaicforecast_filter.log",
+    threads: max(2, workflow.cores // 4)
+    resources:
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024 * 2,
+        runtime=720,
+    shell:
+        """
+        exec >> {log} 2>&1
+        echo "================================================================"
+        echo "[mosaicforecast_filter] START $(date -Iseconds)"
+        echo "[mosaicforecast_filter] sample={wildcards.sample}  model={params.model}"
+        echo "================================================================"
+
+        python {params.script} \
+            --candidates {input.txt} \
+            --sample {wildcards.sample} \
+            --bam-dir {params.bam_dir} \
+            --fmt cram \
+            --ref {params.ref} \
+            --model {params.model} \
+            --mf-sif {params.mf_sif} \
+            --workdir {params.workdir} \
+            --mode {params.mode} \
+            --read-length {params.read_length} \
+            --threads {threads} \
+            --timeout {params.timeout} \
+            --retries {params.retries} \
+            --min-prob {params.min_prob} \
+            > {output.txt}
+
+        _kept=$(wc -l < {output.txt})
+        echo "[mosaicforecast_filter] variants_kept=$_kept"
+        echo "[mosaicforecast_filter] END $(date -Iseconds)"
+        echo "================================================================"
+        """
+
+
 rule pon_mask_filter:
     """
     PON mask filter using an IUPAC-encoded panel-of-normals FASTA.
@@ -251,7 +324,7 @@ rule pon_mask_filter:
     Produces the final, analysis-ready somatic SNV list.
     """
     input:
-        txt="results/filtering/{sample}/{sample}.mayo_filtered.txt",
+        txt="results/filtering/{sample}/{sample}.mosaicforecast_filtered.txt",
     output:
         txt="results/filtering/{sample}/{sample}.final.txt",
     params:

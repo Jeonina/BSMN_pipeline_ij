@@ -40,3 +40,13 @@ bcftools:
   version: v1.17
   uri: docker://staphb/bcftools:1.17
   sif: containers/bcftools_1.17.sif
+
+# MosaicForecast: ships the feature-extraction/prediction scripts and the
+# k24.umap.wg.bw mappability track inside the image (/usr/local/bin). The
+# trained RF models are NOT in the image — clone them to
+# resources/MosaicForecast/models_trained/ (see filtering.mosaicforecast.model).
+mosaicforecast:
+  name: mosaicforecast
+  version: v0.0.1
+  uri: docker://yanmei/mosaicforecast:0.0.1
+  sif: containers/mosaicforecast.sif
