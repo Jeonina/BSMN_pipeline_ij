@@ -21,6 +21,7 @@ _spec.loader.exec_module(mf)
 
 # --- to_bed_line ------------------------------------------------------------
 
+
 def test_to_bed_line_zero_based_start_and_sample():
     assert mf.to_bed_line("chr20", "47053475", "G", "T", "HG002") == (
         "chr20\t47053474\t47053475\tG\tT\tHG002"
@@ -28,6 +29,7 @@ def test_to_bed_line_zero_based_start_and_sample():
 
 
 # --- parse_predictions ------------------------------------------------------
+
 
 def _row(var_id: str, pred: str, prob: str) -> str:
     """37-column whitespace row: col1=id, col35=pred, col37=prob."""
@@ -39,21 +41,25 @@ def _row(var_id: str, pred: str, prob: str) -> str:
 
 
 def test_header_and_nonmosaic_skipped():
-    text = "\n".join([
-        "id\t" + "\t".join(["h"] * 36),                      # header row
-        _row("HG002~chr20~47053475~G~T", "mosaic", "0.95"),  # mosaic
-        _row("HG002~chr20~1454720~T~C", "het", "0.99"),      # not mosaic
-        _row("HG002~chr20~5122314~A~T", "refhom", "0.80"),   # not mosaic
-    ])
+    text = "\n".join(
+        [
+            "id\t" + "\t".join(["h"] * 36),  # header row
+            _row("HG002~chr20~47053475~G~T", "mosaic", "0.95"),  # mosaic
+            _row("HG002~chr20~1454720~T~C", "het", "0.99"),  # not mosaic
+            _row("HG002~chr20~5122314~A~T", "refhom", "0.80"),  # not mosaic
+        ]
+    )
     got = mf.parse_predictions(text, min_prob=0.0)
     assert got == [("chr20", "47053475", "G", "T")]
 
 
 def test_min_prob_filters_low_confidence():
-    text = "\n".join([
-        _row("HG002~chr20~47053475~G~T", "mosaic", "0.95"),
-        _row("HG002~chr20~38139365~T~A", "mosaic", "0.40"),  # below 0.6
-    ])
+    text = "\n".join(
+        [
+            _row("HG002~chr20~47053475~G~T", "mosaic", "0.95"),
+            _row("HG002~chr20~38139365~T~A", "mosaic", "0.40"),  # below 0.6
+        ]
+    )
     assert mf.parse_predictions(text, min_prob=0.6) == [("chr20", "47053475", "G", "T")]
     # with no cutoff both survive
     assert len(mf.parse_predictions(text, min_prob=0.0)) == 2

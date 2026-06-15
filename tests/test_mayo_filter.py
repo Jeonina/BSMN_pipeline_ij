@@ -22,24 +22,42 @@ _spec.loader.exec_module(mayo)
 def _strand(**over):
     """A clean, passing strand record; override fields per test."""
     rec = {
-        "chr": "chr20", "pos": "47053475", "ref": "G", "alt": "T",
-        "total": 273, "total_fwd": 147, "total_rev": 126,
-        "ref_n": 242, "ref_fwd": 130, "ref_rev": 112,
-        "alt_n": 31, "alt_fwd": 17, "alt_rev": 14,
-        "p_poisson": 0.30, "p_fisher": 0.56,
+        "chr": "chr20",
+        "pos": "47053475",
+        "ref": "G",
+        "alt": "T",
+        "total": 273,
+        "total_fwd": 147,
+        "total_rev": 126,
+        "ref_n": 242,
+        "ref_fwd": 130,
+        "ref_rev": 112,
+        "alt_n": 31,
+        "alt_fwd": 17,
+        "alt_rev": 14,
+        "p_poisson": 0.30,
+        "p_fisher": 0.56,
     }
     rec.update(over)
     return rec
 
 
 def _repeat(**over):
-    rec = {"chr": "chr20", "pos": "47053475", "ref": "G", "alt": "T",
-           "repeat_n": 1, "repeat_length": 1, "repeat_seq": "[G>T]"}
+    rec = {
+        "chr": "chr20",
+        "pos": "47053475",
+        "ref": "G",
+        "alt": "T",
+        "repeat_n": 1,
+        "repeat_length": 1,
+        "repeat_seq": "[G>T]",
+    }
     rec.update(over)
     return rec
 
 
 # --- passes_mayo: one criterion at a time ----------------------------------
+
 
 def test_clean_record_passes():
     kept, reason = mayo.passes_mayo(_strand(), _repeat(), 4, 10, 0.05)
@@ -71,9 +89,7 @@ def test_single_strand_alt_rejected():
 
 
 def test_strand_bias_rejected_when_both_p_below():
-    kept, reason = mayo.passes_mayo(
-        _strand(p_poisson=0.01, p_fisher=0.02), _repeat(), 4, 10, 0.05
-    )
+    kept, reason = mayo.passes_mayo(_strand(p_poisson=0.01, p_fisher=0.02), _repeat(), 4, 10, 0.05)
     assert (kept, reason) == (False, "strand_bias")
 
 
@@ -92,6 +108,7 @@ def test_criterion_order_repeat_reported_first():
 
 
 # --- read_tsv: header parsing + typing --------------------------------------
+
 
 def test_read_tsv_join_and_types(tmp_path):
     strand = tmp_path / "s.tsv"

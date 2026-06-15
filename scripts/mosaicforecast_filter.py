@@ -67,9 +67,7 @@ def to_bed_line(chrom: str, pos: str, ref: str, alt: str, sample: str) -> str:
     return f"{chrom}\t{int(pos) - 1}\t{pos}\t{ref}\t{alt}\t{sample}"
 
 
-def parse_predictions(
-    text: str, min_prob: float = 0.0
-) -> list[tuple[str, str, str, str]]:
+def parse_predictions(text: str, min_prob: float = 0.0) -> list[tuple[str, str, str, str]]:
     """Return (chrom, pos, ref, alt) for rows predicted mosaic.
 
     Mirrors ``awk '$35~/^mosaic/ {print $1}' | cut -f2- -d~ | tr '~' '\\t'``.
@@ -119,9 +117,17 @@ def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
                 if os.path.exists(tout):
                     os.remove(tout)
                 cmd = _apptainer(
-                    args.mf_sif, "python3", RLF_SCRIPT,
-                    tin, tout, args.bam_dir, args.ref, UMAP_BW,
-                    str(args.read_length), str(args.threads), args.fmt,
+                    args.mf_sif,
+                    "python3",
+                    RLF_SCRIPT,
+                    tin,
+                    tout,
+                    args.bam_dir,
+                    args.ref,
+                    UMAP_BW,
+                    str(args.read_length),
+                    str(args.threads),
+                    args.fmt,
                 )
                 try:
                     subprocess.run(cmd, timeout=args.timeout, check=False)

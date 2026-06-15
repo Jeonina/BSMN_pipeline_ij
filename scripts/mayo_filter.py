@@ -35,10 +35,17 @@ Key = tuple[str, str, str, str]
 # Columns cast to int / float when reading the upstream TSVs; everything else
 # (e.g. repeat_seq, *_ratio) stays a string.
 _INT_COLS = {
-    "total", "total_fwd", "total_rev",
-    "ref_n", "ref_fwd", "ref_rev",
-    "alt_n", "alt_fwd", "alt_rev",
-    "repeat_n", "repeat_length",
+    "total",
+    "total_fwd",
+    "total_rev",
+    "ref_n",
+    "ref_fwd",
+    "ref_rev",
+    "alt_n",
+    "alt_fwd",
+    "alt_rev",
+    "repeat_n",
+    "repeat_length",
 }
 _FLOAT_COLS = {"p_poisson", "p_fisher"}
 
@@ -99,8 +106,14 @@ def run(args: argparse.Namespace) -> None:
 
     log.info("strand records=%d  repeat records=%d", len(strand), len(repeat))
 
-    counts = {"kept": 0, "repeat": 0, "multiallelic": 0, "single_strand": 0,
-              "strand_bias": 0, "missing": 0}
+    counts = {
+        "kept": 0,
+        "repeat": 0,
+        "multiallelic": 0,
+        "single_strand": 0,
+        "strand_bias": 0,
+        "missing": 0,
+    }
     for key, s in strand.items():
         r = repeat.get(key)
         if r is None:
@@ -119,10 +132,14 @@ def run(args: argparse.Namespace) -> None:
     sys.stdout.flush()
     total_in = len(strand)
     log.info(
-        "mayo: %d -> %d  (repeat=%d multiallelic=%d single_strand=%d "
-        "strand_bias=%d missing=%d)",
-        total_in, counts["kept"], counts["repeat"], counts["multiallelic"],
-        counts["single_strand"], counts["strand_bias"], counts["missing"],
+        "mayo: %d -> %d  (repeat=%d multiallelic=%d single_strand=%d strand_bias=%d missing=%d)",
+        total_in,
+        counts["kept"],
+        counts["repeat"],
+        counts["multiallelic"],
+        counts["single_strand"],
+        counts["strand_bias"],
+        counts["missing"],
     )
 
 

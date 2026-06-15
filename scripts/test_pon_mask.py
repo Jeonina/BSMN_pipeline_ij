@@ -110,8 +110,8 @@ def main() -> None:
     print("-" * 70)
     for pon, hits in per_pon.items():
         fp_masked = sum(1 for k in hits if k != truth_key)
-        tp_masked = "YES (bad)" if truth_key and truth_key in hits else (
-            "no" if truth_key else "n/a"
+        tp_masked = (
+            "YES (bad)" if truth_key and truth_key in hits else ("no" if truth_key else "n/a")
         )
         print(f"{os.path.basename(pon):<45}{f'{fp_masked}/{n_fp}':>12}{tp_masked:>13}")
     if len(args.pon) > 1:

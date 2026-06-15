@@ -227,8 +227,7 @@ def main() -> None:
 
     # Heuristic effectiveness: how many FPs removed vs TP preserved.
     fp_rows = [
-        rows[(c, pos)] for c, pos, _, _ in cands
-        if (c, pos) in rows and (c, pos) != truth_key
+        rows[(c, pos)] for c, pos, _, _ in cands if (c, pos) in rows and (c, pos) != truth_key
     ]
     tp_row = rows.get(truth_key) if truth_key else None
     n_fp = len(fp_rows)
