@@ -72,7 +72,6 @@ filtering:
   mosaicforecast:
     model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
     mode: "Refine"
-    read_length: 150
     min_prob: 0.0
     timeout: 300
     retries: 5

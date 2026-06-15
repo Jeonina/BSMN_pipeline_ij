@@ -268,7 +268,6 @@ rule mosaicforecast_filter:
             "model", "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
         ),
         mode=_filtering.get("mosaicforecast", {}).get("mode", "Refine"),
-        read_length=_filtering.get("mosaicforecast", {}).get("read_length", 150),
         min_prob=_filtering.get("mosaicforecast", {}).get("min_prob", 0.0),
         timeout=_filtering.get("mosaicforecast", {}).get("timeout", 300),
         retries=_filtering.get("mosaicforecast", {}).get("retries", 5),
@@ -298,7 +297,6 @@ rule mosaicforecast_filter:
             --mf-sif {params.mf_sif} \
             --workdir {params.workdir} \
             --mode {params.mode} \
-            --read-length {params.read_length} \
             --threads {threads} \
             --timeout {params.timeout} \
             --retries {params.retries} \

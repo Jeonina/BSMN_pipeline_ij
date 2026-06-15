@@ -109,7 +109,6 @@ filtering:
   mosaicforecast:
     model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
     mode: "Refine"
-    read_length: 150
     min_prob: 0.0           # 0 = all mosaic calls; 0.6 = high-confidence only
     timeout: 300            # per-variant feature-extraction timeout (s)
     retries: 5

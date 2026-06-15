@@ -112,7 +112,9 @@ def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
             with open(tin, "w") as fh:
                 fh.write(bed + "\n")
             log.info(">> [%d/%d] %s", i, len(beds), bed)
-            ok = False
+            # Image MF signature (no read_length): input output bam_dir ref umap nthreads fmt.
+            # capture_output keeps MF's stdout/stderr OUT of our stdout (the result file).
+            proc = None
             for attempt in range(args.retries):
                 if os.path.exists(tout):
                     os.remove(tout)
@@ -125,29 +127,31 @@ def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
                     args.bam_dir,
                     args.ref,
                     UMAP_BW,
-                    str(args.read_length),
                     str(args.threads),
                     args.fmt,
                 )
                 try:
-                    subprocess.run(cmd, timeout=args.timeout, check=False)
-                    ok = True
-                    break
+                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
                 except subprocess.TimeoutExpired:
                     log.warning("timeout (attempt %d/%d) — retrying", attempt + 1, args.retries)
-            if not ok:
-                log.warning("giving up on variant after %d attempts: %s", args.retries, bed)
-                continue
+                    continue
+                break  # completed (success measured by TOUT below); only timeouts retry
             if os.path.exists(tout) and os.path.getsize(tout) > 0:
                 with open(tout) as fh:
                     lines = fh.read().splitlines()
-                if not lines:
-                    continue
-                if not wrote_header:
-                    feat.write(lines[0] + "\n")
-                    wrote_header = True
-                # last line is this variant's feature row
-                feat.write(lines[-1] + "\n")
+                if lines:
+                    if not wrote_header:
+                        feat.write(lines[0] + "\n")
+                        wrote_header = True
+                    feat.write(lines[-1] + "\n")  # last line = this variant's feature row
+            elif proc is not None:
+                log.warning(
+                    "no features (rc=%s): %s",
+                    proc.returncode,
+                    (proc.stderr or proc.stdout or "").strip()[-400:],
+                )
+            else:
+                log.warning("no features: all %d attempts timed out", args.retries)
     for tmp in (tin, tout):
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -162,7 +166,11 @@ def predict(args: argparse.Namespace, features: str) -> str:
     cmd = _apptainer(
         args.mf_sif, "Rscript", PRED_SCRIPT, features, args.model, args.mode, prediction
     )
-    subprocess.run(cmd, check=True)
+    # capture_output so Prediction.R chatter never reaches our stdout (the result file)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        log.error("Prediction.R failed (rc=%d): %s", proc.returncode, (proc.stderr or "")[-500:])
+        raise SystemExit(1)
     return prediction
 
 
@@ -211,7 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mf-sif", required=True, help="MosaicForecast Apptainer .sif")
     p.add_argument("--workdir", required=True, help="scratch dir for BED/features/predictions")
     p.add_argument("--mode", default="Refine", help="Prediction.R mode [Refine]")
-    p.add_argument("--read-length", type=int, default=150, help="read length [150]")
     p.add_argument("--threads", type=int, default=4, help="threads for feature extraction [4]")
     p.add_argument("--timeout", type=int, default=300, help="per-variant timeout seconds [300]")
     p.add_argument("--retries", type=int, default=5, help="per-variant retries on timeout [5]")
