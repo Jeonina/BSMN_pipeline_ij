@@ -8,8 +8,9 @@ container on PATH. The ``--reference`` and ``--conda-env`` CLI flags are
 removed.
 
 For each SNV, emit forward/reverse strand counts for total, ref, and alt
-alleles, a Poisson p-value on overall strand balance (R via rpy2), and a
-Fisher exact p-value on the 2x2 fwd/rev × ref/alt table (scipy).
+alleles, a Poisson p-value on overall strand balance (scipy binomial test,
+equivalent to R's poisson.test), and a Fisher exact p-value on the 2x2
+fwd/rev × ref/alt table (scipy).
 """
 
 from __future__ import annotations
@@ -22,8 +23,21 @@ from collections.abc import Generator
 from multiprocessing import Pool
 from typing import Any
 
-from rpy2.robjects import r
 from scipy.stats import fisher_exact
+
+# R's poisson.test(c(x, y)) is exactly binom.test(x, x+y, 0.5), so the strand
+# Poisson p-value is computed with scipy — no rpy2/R dependency required.
+try:  # scipy >= 1.7
+    from scipy.stats import binomtest as _binomtest
+
+    def _binom_two_sided(k: int, n: int) -> float:
+        return float(_binomtest(k, n, 0.5, alternative="two-sided").pvalue)
+except ImportError:  # older scipy
+    from scipy.stats import binom_test as _binom_test_fn
+
+    def _binom_two_sided(k: int, n: int) -> float:
+        return float(_binom_test_fn(k, n, 0.5, alternative="two-sided"))
+
 
 pipe_home = os.path.dirname(os.path.realpath(__file__)) + "/.."
 sys.path.append(pipe_home)
@@ -116,7 +130,12 @@ def strand_info(
 
 
 def p_poisson(n_fwd: int, n_rev: int) -> float:
-    return float(r(f"poisson.test(c({n_fwd},{n_rev}))$p.value")[0])
+    # Two-sided binomial test on forward/reverse balance; equivalent to the
+    # original R poisson.test(c(n_fwd, n_rev)).
+    n = n_fwd + n_rev
+    if n == 0:
+        return 1.0
+    return _binom_two_sided(n_fwd, n)
 
 
 def p_fisher(ref_fwd: int, alt_fwd: int, ref_rev: int, alt_rev: int) -> float:
