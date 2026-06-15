@@ -77,6 +77,18 @@ STEPS: list[tuple[str, str, str, list[tuple[str, str]]]] = [
         ],
     ),
     (
+        "mayo",
+        "logs/filtering/{sample}/mayo_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [(r"mayo: (\d+) ->", "input"), (r"variants_kept=(\d+)", "kept")],
+    ),
+    (
+        "mosaicforecast",
+        "logs/filtering/{sample}/mosaicforecast_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [(r"mosaicforecast: (\d+) ->", "input"), (r"variants_kept=(\d+)", "kept")],
+    ),
+    (
         "pon_mask",
         "logs/filtering/{sample}/pon_mask_filter.log",
         r"elapsed=([\d.]+) seconds",
