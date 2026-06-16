@@ -70,6 +70,11 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
+  cnvnator:
+    binsize: 100
+    cn_threshold: 2.5
+    window: 1000
+
   mayo:
     max_repeat_n: 4
     max_repeat_length: 10

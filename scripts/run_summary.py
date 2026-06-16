@@ -77,6 +77,12 @@ STEPS: list[tuple[str, str, str, list[tuple[str, str]]]] = [
         ],
     ),
     (
+        "cnvnator",
+        "logs/filtering/{sample}/cnvnator_filter.log",
+        r"elapsed=([\d.]+) seconds",
+        [(r"cnvnator: (\d+) ->", "input"), (r"kept=(\d+)", "kept")],
+    ),
+    (
         "mayo",
         "logs/filtering/{sample}/mayo_filter.log",
         r"elapsed=([\d.]+) seconds",

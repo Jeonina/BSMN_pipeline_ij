@@ -127,6 +127,7 @@ omit = [
     # tests/test_mayo_filter.py and tests/test_mosaicforecast_filter.py.
     "scripts/mayo_filter.py",
     "scripts/mosaicforecast_filter.py",
+    "scripts/cnvnator_filter.py",
     # One-off FP diagnostics — bcftools/BED CLI tools run by hand on benchmark
     # outputs, not part of the pipeline DAG.
     "scripts/analyze_candidate_fps.py",

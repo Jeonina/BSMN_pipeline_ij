@@ -50,3 +50,11 @@ mosaicforecast:
   version: v0.0.1
   uri: docker://yanmei/mosaicforecast:0.0.1
   sif: containers/mosaicforecast.sif
+
+# CNVnator (ROOT-based read-depth CNV genotyping). v0.4.1 supports a single
+# reference via `-his ... -fasta` (no per-chromosome split needed).
+cnvnator:
+  name: cnvnator
+  version: v0.4.1
+  uri: docker://quay.io/biocontainers/cnvnator:0.4.1--py313h3ef7bf5_12
+  sif: containers/cnvnator.sif

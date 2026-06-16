@@ -62,6 +62,11 @@ filtering:
     min_alt_count: 5
     p_binom_threshold: 1.0e-6
 
+  cnvnator:
+    binsize: 100
+    cn_threshold: 2.5
+    window: 1000
+
   mayo:
     max_repeat_n: 4
     max_repeat_length: 10

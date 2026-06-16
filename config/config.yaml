@@ -94,7 +94,15 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
-  # C. Mayo filter (BSMN E-step: strand bias + repeat + multiallelic)
+  # C. CNVnator filter (BSMN D-step: drop CNV-region calls, CN >= threshold)
+  #   ROOT built per sample by rule cnvnator_root (binsize 100). v0.4.1 reads
+  #   the reference via -fasta, so no per-chromosome split is required.
+  cnvnator:
+    binsize: 100
+    cn_threshold: 2.5      # drop candidate if genotyped copy number >= this
+    window: 1000           # +/-bp window genotyped around each candidate
+
+  # D. Mayo filter (BSMN E-step: strand bias + repeat + multiallelic)
   mayo:
     max_repeat_n: 4         # reject if repeat_n >= this
     max_repeat_length: 10   # reject if repeat_length >= this

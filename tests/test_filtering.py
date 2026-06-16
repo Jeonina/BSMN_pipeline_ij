@@ -31,6 +31,8 @@ EXPECTED_FILTER_RULES = [
     "accessibility_filter",
     "germline_filter",
     "vaf_filter",
+    "cnvnator_root",
+    "cnvnator_filter",
     "mayo_filter",
     "mosaicforecast_filter",
     "pon_mask_filter",

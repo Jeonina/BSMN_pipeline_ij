@@ -1,22 +1,25 @@
 # =============================================================================
 # Filtering rules: Mutect2-filtered VCF → final somatic SNV list
 #
-# Six sequential filters per PIPELINE.md:
+# Seven sequential filters per PIPELINE.md:
 #   1. accessibility_filter   — 1KG strict mask (keeps only mask base == 'P')
 #   2. germline_filter        — removes gnomAD AF > 0.001 known germline variants
 #   3. vaf_filter             — binomial test p < 1e-6 AND alt_count >= 5
-#   4. mayo_filter            — BSMN E-step: strand bias + repeat + multiallelic
-#   5. mosaicforecast_filter  — BSMN E-step: MosaicForecast RF mosaic prediction
-#   6. pon_mask_filter        — IUPAC FASTA-based panel-of-normals mask
+#   4. cnvnator_filter        — BSMN D-step: drop CNV-region calls (CN >= 2.5)
+#   5. mayo_filter            — BSMN E-step: strand bias + repeat + multiallelic
+#   6. mosaicforecast_filter  — BSMN E-step: MosaicForecast RF mosaic prediction
+#   7. pon_mask_filter        — IUPAC FASTA-based panel-of-normals mask
 #
-# Resources are dynamically allocated based on system capabilities
-# (via config/resolved_params.yaml from scripts/auto_params.py).
+# cnvnator_root (prep) builds the per-sample read-depth ROOT consumed by
+# cnvnator_filter. Resources are dynamically allocated (config/resolved_params.yaml).
 #
 # DAG (per sample):
 #   results/calling/{sample}/{sample}.filtered.vcf.gz
 #       → accessibility_filter   → {sample}.accessible.txt (temp)
 #       → germline_filter        → {sample}.germline_filtered.txt (temp)
 #       → vaf_filter             → {sample}.vaf_filtered.txt (temp)
+#       → cnvnator_filter        → {sample}.cnvnator_filtered.txt (temp)
+#           (uses cnvnator/{sample}.root from rule cnvnator_root)
 #       → mayo_filter            → {sample}.mayo_filtered.txt (temp)
 #       → mosaicforecast_filter  → {sample}.mosaicforecast_filtered.txt (temp)
 #       → pon_mask_filter        → {sample}.final.txt  ← final output
@@ -151,6 +154,104 @@ rule vaf_filter:
         """
 
 
+rule cnvnator_root:
+    """
+    Build the per-sample CNVnator read-depth ROOT (BSMN A.CNVnator_mk_root.sh).
+
+    CNVnator reads alignments via htslib; CRAM decoding is done reliably by
+    samtools (-T ref) into a temp BAM restricted to the analysis chromosomes,
+    which is then fed to `-tree`. v0.4.1 builds the GC histogram from a single
+    reference via `-his ... -fasta` (no per-chromosome split needed).
+    """
+    input:
+        cram="results/mapping/{sample}/{sample}.cram",
+        crai="results/mapping/{sample}/{sample}.cram.crai",
+    output:
+        root="results/filtering/{sample}/cnvnator/{sample}.root",
+    params:
+        ref=REF,
+        chrom=" ".join(CHROMOSOMES),
+        binsize=_filtering.get("cnvnator", {}).get("binsize", 100),
+        outdir="results/filtering/{sample}/cnvnator",
+        tmpbam="results/filtering/{sample}/cnvnator/{sample}.tmp.bam",
+        cnvnator_sif=CONTAINERS["cnvnator"]["sif"],
+        samtools_sif=CONTAINERS["samtools"]["sif"],
+    log:
+        "logs/filtering/{sample}/cnvnator_root.log",
+    threads: max(4, workflow.cores // 2)
+    resources:
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024 * 2,
+        runtime=1440,
+    shell:
+        """
+        exec >> {log} 2>&1
+        echo "================================================================"
+        echo "[cnvnator_root] START $(date -Iseconds)  sample={wildcards.sample}"
+        echo "[cnvnator_root] chrom={params.chrom}  binsize={params.binsize}"
+        echo "================================================================"
+        mkdir -p {params.outdir}
+        rm -f {output.root}
+
+        # Reliable CRAM decode (samtools -T ref) → temp BAM on analysis chromosomes
+        apptainer exec {params.samtools_sif} \
+            samtools view -b -@ {threads} -T {params.ref} {input.cram} {params.chrom} \
+            > {params.tmpbam}
+        apptainer exec {params.samtools_sif} samtools index {params.tmpbam}
+
+        # CNVnator ROOT: tree → his(-fasta) → stat → partition → call
+        apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -tree {params.tmpbam} -lite
+        apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -his {params.binsize} -fasta {params.ref}
+        apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -stat {params.binsize}
+        apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -partition {params.binsize}
+        apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -call {params.binsize} > {params.outdir}/{wildcards.sample}.cnvcall
+
+        rm -f {params.tmpbam} {params.tmpbam}.bai
+        echo "[cnvnator_root] END $(date -Iseconds)"
+        echo "================================================================"
+        """
+
+
+rule cnvnator_filter:
+    """
+    CNVnator genotype filter — BSMN D.CNVnator_genotype_filter.sh step.
+    Genotypes a +/-1kb window around each VAF-passing candidate and drops those
+    whose estimated copy number is >= cn_threshold (2.5) — i.e. in a duplicated
+    region where low apparent VAF is a copy-number / paralog artifact.
+    """
+    input:
+        txt="results/filtering/{sample}/{sample}.vaf_filtered.txt",
+        root="results/filtering/{sample}/cnvnator/{sample}.root",
+    output:
+        txt=temp("results/filtering/{sample}/{sample}.cnvnator_filtered.txt"),
+    params:
+        binsize=_filtering.get("cnvnator", {}).get("binsize", 100),
+        cn_threshold=_filtering.get("cnvnator", {}).get("cn_threshold", 2.5),
+        window=_filtering.get("cnvnator", {}).get("window", 1000),
+        cnvnator_sif=CONTAINERS["cnvnator"]["sif"],
+        script=os.path.join(_SCRIPTS, "cnvnator_filter.py"),
+    log:
+        "logs/filtering/{sample}/cnvnator_filter.log",
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        runtime=240,
+    shell:
+        """
+        exec >> {log} 2>&1
+        echo "[cnvnator_filter] START $(date -Iseconds)  sample={wildcards.sample}"
+        python {params.script} \
+            --candidates {input.txt} \
+            --root {input.root} \
+            --cnvnator-sif {params.cnvnator_sif} \
+            --binsize {params.binsize} \
+            --cn-threshold {params.cn_threshold} \
+            --window {params.window} \
+            > {output.txt}
+        echo "[cnvnator_filter] kept=$(wc -l < {output.txt})"
+        echo "[cnvnator_filter] END $(date -Iseconds)"
+        """
+
+
 rule mayo_filter:
     """
     Mayo filter — BSMN E.mayo_filters.sh step (strand bias + repeat + multiallelic).
@@ -168,7 +269,7 @@ rule mayo_filter:
     mpileup through strand_bias_filter.py's --bam argument.
     """
     input:
-        txt="results/filtering/{sample}/{sample}.vaf_filtered.txt",
+        txt="results/filtering/{sample}/{sample}.cnvnator_filtered.txt",
         cram="results/mapping/{sample}/{sample}.cram",
         crai="results/mapping/{sample}/{sample}.cram.crai",
     output:
