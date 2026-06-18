@@ -142,11 +142,11 @@ def main() -> None:
     kg = read_bed(args.kg)
     giab = read_bed(args.giab)
 
-    A = total_bp(kg)
-    B = total_bp(giab)
+    kg_bp = total_bp(kg)
+    giab_bp = total_bp(giab)
     inter = intersect(kg, giab)
-    I = total_bp(inter)
-    union = A + B - I
+    inter_bp = total_bp(inter)
+    union_bp = kg_bp + giab_bp - inter_bp
 
     write_bed(inter, os.path.join(args.outdir, "intersection.bed"))
 
@@ -157,16 +157,18 @@ def main() -> None:
         f"1KG mask BED        : {args.kg}",
         f"GIAB confident BED  : {args.giab}",
         "--------------------------------------------------------------",
-        f"1KG accessible (A)        : {A:15,d} bp",
-        f"GIAB confident (B)        : {B:15,d} bp",
-        f"Intersection (A∩B)        : {I:15,d} bp",
-        f"1KG-only   (A∖B)          : {A - I:15,d} bp",
-        f"GIAB-only  (B∖A)          : {B - I:15,d} bp",
-        f"Union      (A∪B)          : {union:15,d} bp",
+        f"1KG accessible (A)        : {kg_bp:15,d} bp",
+        f"GIAB confident (B)        : {giab_bp:15,d} bp",
+        f"Intersection (A∩B)        : {inter_bp:15,d} bp",
+        f"1KG-only   (A∖B)          : {kg_bp - inter_bp:15,d} bp",
+        f"GIAB-only  (B∖A)          : {giab_bp - inter_bp:15,d} bp",
+        f"Union      (A∪B)          : {union_bp:15,d} bp",
         "--------------------------------------------------------------",
-        f"Fraction of 1KG  in GIAB  : {100 * I / A:6.2f} %   (A∩B / A)" if A else "",
-        f"Fraction of GIAB in 1KG   : {100 * I / B:6.2f} %   (A∩B / B)" if B else "",
-        f"Jaccard (A∩B / A∪B)       : {I / union:6.4f}" if union else "",
+        f"Fraction of 1KG  in GIAB  : {100 * inter_bp / kg_bp:6.2f} %   (A∩B / A)" if kg_bp else "",
+        f"Fraction of GIAB in 1KG   : {100 * inter_bp / giab_bp:6.2f} %   (A∩B / B)"
+        if giab_bp
+        else "",
+        f"Jaccard (A∩B / A∪B)       : {inter_bp / union_bp:6.4f}" if union_bp else "",
         "==============================================================",
         "Interpretation:",
         "  * both fractions high (>90%) AND neither =100%",
