@@ -130,7 +130,9 @@ python run.py /data/cohort/ --cluster slurm --stage all
 ```
 
 See [docs/SLURM_USAGE.md](docs/SLURM_USAGE.md) for partition/account overrides,
-monitoring, and tuning.
+monitoring, and tuning, and [docs/PRODUCTION_RUN.md](docs/PRODUCTION_RUN.md) for
+the full cohort runbook (sample sheet, MosaicForecast worker tuning, pilot-first,
+outputs).
 
 ---
 
