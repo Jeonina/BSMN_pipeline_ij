@@ -82,12 +82,9 @@ STEPS: list[tuple[str, str, str, list[tuple[str, str]]]] = [
         r"elapsed=([\d.]+) seconds",
         [(r"cnvnator: (\d+) ->", "input"), (r"kept=(\d+)", "kept")],
     ),
-    (
-        "mayo",
-        "logs/filtering/{sample}/mayo_filter.log",
-        r"elapsed=([\d.]+) seconds",
-        [(r"mayo: (\d+) ->", "input"), (r"variants_kept=(\d+)", "kept")],
-    ),
+    # mayo is the BSMN E-step alternative to MosaicForecast (two options, not a
+    # chain). The default cascade uses MosaicForecast only, so mayo_filter is not
+    # run and produces no log. Re-add this entry if you wire mayo back in.
     (
         "mosaicforecast",
         "logs/filtering/{sample}/mosaicforecast_filter.log",

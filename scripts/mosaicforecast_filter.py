@@ -22,7 +22,7 @@ container calls cannot run without the image + alignment data.
 
 Usage:
     python scripts/mosaicforecast_filter.py \
-        --candidates results/filtering/SM/SM.mayo_filtered.txt \
+        --candidates results/filtering/SM/SM.cnvnator_filtered.txt \
         --sample SM --bam-dir results/mapping/SM --fmt cram \
         --ref resources/hg38/Homo_sapiens_assembly38.fasta \
         --model resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds \

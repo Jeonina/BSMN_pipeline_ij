@@ -27,6 +27,9 @@ WORKFLOW_DIR = PROJECT_ROOT / "workflow"
 CONFIG_DIR = PROJECT_ROOT / "config"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
+# Rules that MUST be defined in filtering.smk (text-level presence check).
+# mayo_filter is retained as the BSMN E-step alternative to MosaicForecast even
+# though it is not wired into the default cascade.
 EXPECTED_FILTER_RULES = [
     "accessibility_filter",
     "germline_filter",
@@ -37,6 +40,11 @@ EXPECTED_FILTER_RULES = [
     "mosaicforecast_filter",
     "pon_mask_filter",
 ]
+
+# Rules that MUST appear in the default dry-run DAG. The BSMN E-step uses
+# MosaicForecast only (mayo OR MosaicForecast are two alternatives, not a
+# chain), so mayo_filter is intentionally absent from the wired cascade.
+EXPECTED_DAG_RULES = [r for r in EXPECTED_FILTER_RULES if r != "mayo_filter"]
 
 # =============================================================================
 # Session fixture — reuse novaseq_fastq from conftest
@@ -511,7 +519,7 @@ class TestFilteringDryRun:
     def test_all_filtering_rules_in_dag(self, filtering_env):
         result = self._dry_run(filtering_env)
         combined = result.stdout + result.stderr
-        for rule in EXPECTED_FILTER_RULES:
+        for rule in EXPECTED_DAG_RULES:
             assert rule in combined, (
                 f"Rule '{rule}' not found in dry-run DAG.\n"
                 f"Output (first 3000 chars):\n{combined[:3000]}"

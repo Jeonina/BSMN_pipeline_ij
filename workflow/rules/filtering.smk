@@ -1,14 +1,19 @@
 # =============================================================================
 # Filtering rules: Mutect2-filtered VCF → final somatic SNV list
 #
-# Seven sequential filters per PIPELINE.md:
+# Default cascade — six sequential filters per PIPELINE.md:
 #   1. accessibility_filter   — 1KG strict mask (keeps only mask base == 'P')
 #   2. germline_filter        — removes gnomAD AF > 0.001 known germline variants
 #   3. vaf_filter             — binomial test p < 1e-6 AND alt_count >= 5
 #   4. cnvnator_filter        — BSMN D-step: drop CNV-region calls (CN >= 2.5)
-#   5. mayo_filter            — BSMN E-step: strand bias + repeat + multiallelic
-#   6. mosaicforecast_filter  — BSMN E-step: MosaicForecast RF mosaic prediction
-#   7. pon_mask_filter        — IUPAC FASTA-based panel-of-normals mask
+#   5. mosaicforecast_filter  — BSMN E-step: MosaicForecast RF mosaic prediction
+#   6. pon_mask_filter        — IUPAC FASTA-based panel-of-normals mask
+#
+# BSMN E-step is mayo OR MosaicForecast — two alternatives, NOT a chain. The
+# original BSMN runs each as its own branch (jobs/submit_filtering_jobs.py).
+# We default to MosaicForecast only. The mayo_filter rule + scripts + tests are
+# retained but NOT wired into the default cascade; to enable mayo instead, point
+# mosaicforecast_filter.input.txt back at {sample}.mayo_filtered.txt.
 #
 # cnvnator_root (prep) builds the per-sample read-depth ROOT consumed by
 # cnvnator_filter. Resources are dynamically allocated (config/resolved_params.yaml).
@@ -20,9 +25,9 @@
 #       → vaf_filter             → {sample}.vaf_filtered.txt (temp)
 #       → cnvnator_filter        → {sample}.cnvnator_filtered.txt (temp)
 #           (uses cnvnator/{sample}.root from rule cnvnator_root)
-#       → mayo_filter            → {sample}.mayo_filtered.txt (temp)
 #       → mosaicforecast_filter  → {sample}.mosaicforecast_filtered.txt (temp)
 #       → pon_mask_filter        → {sample}.final.txt  ← final output
+#   (mayo_filter is defined but unwired by default — see note above)
 # =============================================================================
 
 import os
@@ -347,7 +352,7 @@ rule mosaicforecast_filter:
     MosaicForecast filter — BSMN E.MosaicForecast.sh step.
 
     Runs MosaicForecast read-level feature extraction + trained-RF prediction
-    (via the yanmei/mosaicforecast Apptainer image) on the mayo-passing
+    (via the yanmei/mosaicforecast Apptainer image) on the CNVnator-passing
     candidates and keeps only those predicted 'mosaic'. The MF scripts and the
     k24 mappability bigwig live inside the image; the RF model is on the host
     (cloned MosaicForecast repo). Apptainer auto-binds the project working dir,
@@ -356,7 +361,7 @@ rule mosaicforecast_filter:
     the high-confidence set (OUT_HC).
     """
     input:
-        txt="results/filtering/{sample}/{sample}.mayo_filtered.txt",
+        txt="results/filtering/{sample}/{sample}.cnvnator_filtered.txt",
         cram="results/mapping/{sample}/{sample}.cram",
         crai="results/mapping/{sample}/{sample}.cram.crai",
     output:
