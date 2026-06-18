@@ -88,6 +88,7 @@ filtering:
     min_prob: 0.0
     timeout: 300
     retries: 5
+    workers: 4              # concurrent variants (parallel RLF processes); capped at --cores
 
   pon_mask:
     fasta: "resources/hg38/PON.q20q20.05.5.fa"

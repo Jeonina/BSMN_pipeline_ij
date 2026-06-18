@@ -380,9 +380,11 @@ rule mosaicforecast_filter:
         script=os.path.join(_SCRIPTS, "mosaicforecast_filter.py"),
     log:
         "logs/filtering/{sample}/mosaicforecast_filter.log",
-    threads: max(2, workflow.cores // 4)
+    # One worker per concurrent variant (variants are independent); Snakemake
+    # caps this at --cores. Tune via config filtering.mosaicforecast.workers.
+    threads: _filtering.get("mosaicforecast", {}).get("workers", 4)
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024 * 2,
+        mem_mb=lambda wildcards, threads: max(_gatk_mem_gb * 1024, threads * 2048),
         runtime=720,
     shell:
         """
@@ -402,7 +404,8 @@ rule mosaicforecast_filter:
             --mf-sif {params.mf_sif} \
             --workdir {params.workdir} \
             --mode {params.mode} \
-            --threads {threads} \
+            --workers {threads} \
+            --threads 1 \
             --timeout {params.timeout} \
             --retries {params.retries} \
             --min-prob {params.min_prob} \

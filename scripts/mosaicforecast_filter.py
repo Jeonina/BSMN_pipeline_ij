@@ -34,6 +34,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import logging
 import os
 import subprocess
@@ -99,65 +100,103 @@ def _apptainer(sif: str, *cmd: str) -> list[str]:
     return ["apptainer", "exec", sif, *cmd]
 
 
+def _extract_one(
+    idx: int, total: int, bed: str, args: argparse.Namespace
+) -> tuple[str | None, str | None]:
+    """Run RLF on ONE variant. Returns (header_line, feature_row); (None, None) on failure.
+
+    Variants are independent, so this runs concurrently across a worker pool.
+    Each call uses its own tin/tout (indexed by idx) to avoid collisions.
+    Per-variant timeout + retry isolates MF hangs to a single variant.
+    """
+    tin = os.path.join(args.workdir, f"{args.sample}.{idx}.mf.in")
+    tout = os.path.join(args.workdir, f"{args.sample}.{idx}.mf.out")
+    header: str | None = None
+    row: str | None = None
+    try:
+        with open(tin, "w") as fh:
+            fh.write(bed + "\n")
+        log.info(">> [%d/%d] %s", idx, total, bed)
+        # Image MF signature (no read_length): input output bam_dir ref umap nthreads fmt.
+        # capture_output keeps MF's stdout/stderr OUT of our stdout (the result file).
+        proc = None
+        for attempt in range(args.retries):
+            if os.path.exists(tout):
+                os.remove(tout)
+            cmd = _apptainer(
+                args.mf_sif,
+                "python3",
+                RLF_SCRIPT,
+                tin,
+                tout,
+                args.bam_dir,
+                args.ref,
+                UMAP_BW,
+                str(args.threads),
+                args.fmt,
+            )
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    "[%d/%d] timeout (attempt %d/%d) — retrying",
+                    idx, total, attempt + 1, args.retries,
+                )
+                continue
+            break  # completed (success measured by TOUT below); only timeouts retry
+        if os.path.exists(tout) and os.path.getsize(tout) > 0:
+            with open(tout) as fh:
+                lines = fh.read().splitlines()
+            if lines:
+                header = lines[0]
+                row = lines[-1]  # last line = this variant's feature row
+        elif proc is not None:
+            log.warning(
+                "[%d/%d] no features (rc=%s): %s",
+                idx, total, proc.returncode,
+                (proc.stderr or proc.stdout or "").strip()[-400:],
+            )
+        else:
+            log.warning("[%d/%d] no features: all %d attempts timed out", idx, total, args.retries)
+    except Exception as exc:  # one bad variant must not abort the whole batch
+        log.warning("[%d/%d] feature extraction error: %s", idx, total, exc)
+    finally:
+        for tmp in (tin, tout):
+            if os.path.exists(tmp):
+                os.remove(tmp)
+    return header, row
+
+
 def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
-    """Per-variant feature extraction with timeout + retry. Returns features path."""
+    """Per-variant feature extraction, parallelized across variants. Returns features path.
+
+    Runs `args.workers` RLF processes concurrently (variants are independent); each
+    process uses `args.threads` internal threads. Results are reassembled in input
+    order so the merged features file is deterministic.
+    """
     os.makedirs(args.workdir, exist_ok=True)
     features = os.path.join(args.workdir, f"{args.sample}.features")
-    tin = os.path.join(args.workdir, f"{args.sample}.mf.in")
-    tout = os.path.join(args.workdir, f"{args.sample}.mf.out")
+    total = len(beds)
+    workers = max(1, args.workers)
+    log.info(
+        "extracting features: %d variants, %d workers x %d RLF-thread(s)",
+        total, workers, args.threads,
+    )
+    results: list[tuple[str | None, str | None]] = [(None, None)] * total
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(_extract_one, i + 1, total, bed, args): i for i, bed in enumerate(beds)}
+        for fut in concurrent.futures.as_completed(futs):
+            results[futs[fut]] = fut.result()
 
-    wrote_header = False
-    with open(features, "w") as feat:
-        for i, bed in enumerate(beds, 1):
-            with open(tin, "w") as fh:
-                fh.write(bed + "\n")
-            log.info(">> [%d/%d] %s", i, len(beds), bed)
-            # Image MF signature (no read_length): input output bam_dir ref umap nthreads fmt.
-            # capture_output keeps MF's stdout/stderr OUT of our stdout (the result file).
-            proc = None
-            for attempt in range(args.retries):
-                if os.path.exists(tout):
-                    os.remove(tout)
-                cmd = _apptainer(
-                    args.mf_sif,
-                    "python3",
-                    RLF_SCRIPT,
-                    tin,
-                    tout,
-                    args.bam_dir,
-                    args.ref,
-                    UMAP_BW,
-                    str(args.threads),
-                    args.fmt,
-                )
-                try:
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
-                except subprocess.TimeoutExpired:
-                    log.warning("timeout (attempt %d/%d) — retrying", attempt + 1, args.retries)
-                    continue
-                break  # completed (success measured by TOUT below); only timeouts retry
-            if os.path.exists(tout) and os.path.getsize(tout) > 0:
-                with open(tout) as fh:
-                    lines = fh.read().splitlines()
-                if lines:
-                    if not wrote_header:
-                        feat.write(lines[0] + "\n")
-                        wrote_header = True
-                    feat.write(lines[-1] + "\n")  # last line = this variant's feature row
-            elif proc is not None:
-                log.warning(
-                    "no features (rc=%s): %s",
-                    proc.returncode,
-                    (proc.stderr or proc.stdout or "").strip()[-400:],
-                )
-            else:
-                log.warning("no features: all %d attempts timed out", args.retries)
-    for tmp in (tin, tout):
-        if os.path.exists(tmp):
-            os.remove(tmp)
-    if not wrote_header:
+    header = next((h for h, _ in results if h), None)
+    if header is None:
         log.warning("no features extracted for any candidate")
         return None
+    with open(features, "w") as feat:
+        feat.write(header + "\n")
+        for _, row in results:
+            if row:
+                feat.write(row + "\n")
     return features
 
 
@@ -219,7 +258,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mf-sif", required=True, help="MosaicForecast Apptainer .sif")
     p.add_argument("--workdir", required=True, help="scratch dir for BED/features/predictions")
     p.add_argument("--mode", default="Refine", help="Prediction.R mode [Refine]")
-    p.add_argument("--threads", type=int, default=4, help="threads for feature extraction [4]")
+    p.add_argument(
+        "--workers", type=int, default=4, help="concurrent variants (parallel RLF processes) [4]"
+    )
+    p.add_argument("--threads", type=int, default=1, help="RLF internal threads per variant [1]")
     p.add_argument("--timeout", type=int, default=300, help="per-variant timeout seconds [300]")
     p.add_argument("--retries", type=int, default=5, help="per-variant retries on timeout [5]")
     p.add_argument(
