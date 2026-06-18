@@ -1,186 +1,165 @@
+# Somatic / Mosaic Variant Calling Pipeline (BSMN refactor)
 
-# somatic variant pipeline
-Originally derived from the [BSMN pipeline](https://github.com/bsmn/bsmn-pipeline).  
-This version reflects a customized reimplementation of somatic variant calling tailored to the specific needs of TJBaeLab.
+A tumor-only somatic / mosaic SNV calling pipeline, refactored from the original
+[BSMN pipeline](https://github.com/bsmn/bsmn-pipeline) for TJBaeLab.
 
-# Setup and installation
-This pipeline can be run in any cluster system using SLURM job scheduler. 
+**This is a reimplementation** — it does NOT match the original BSMN at the tool
+or scheduler level:
 
-## Installing pipeline
-Clone this repository where you want it installed in your cluster. 
+| | Original BSMN | This pipeline |
+|---|---|---|
+| Orchestration | shell jobs + SGE | **Snakemake** (local or SLURM) |
+| Software | conda (`bp`/`bp_frozen`) | **Apptainer containers** (pinned in `config/containers.yaml`) |
+| Caller | GATK3/GATK4 HaplotypeCaller (multi-ploidy) | **GATK4 Mutect2** (tumor-only) |
+
+> The legacy shell pipeline still lives under `jobs/` for reference, but the
+> supported entry points are `run.py` and the Snakemake workflow below.
+
+---
+
+## Pipeline stages
+
+```
+mapping     FASTQ -> CRAM   (bwa-mem -> sambamba sort -> markdup -> BQSR)
+calling     CRAM  -> VCF    (Mutect2 tumor-only, scatter per chromosome -> FilterMutectCalls)
+filtering   VCF   -> final  (6-step somatic/mosaic cascade)
+```
+
+### Filtering cascade (per `workflow/rules/filtering.smk`)
+
+```
+1 accessibility   1KG strict mask (keep accessible positions)
+2 germline        remove gnomAD AF > 0.001 known germline
+3 vaf             binomial test p < 1e-6 AND alt_count >= 5
+4 cnvnator        BSMN D-step: drop CNV-region calls (CN >= 2.5)
+5 mosaicforecast  BSMN E-step: MosaicForecast trained-RF mosaic prediction
+6 pon_mask        IUPAC panel-of-normals FASTA mask
+                                  -> results/filtering/{sample}/{sample}.final.txt
+```
+
+The BSMN E-step is **mayo OR MosaicForecast** (two alternatives, not a chain).
+This pipeline defaults to **MosaicForecast only**; the `mayo_filter` rule is
+retained but unwired (re-point `mosaicforecast_filter`'s input at
+`{sample}.mayo_filtered.txt` to enable it).
+
+---
+
+## Requirements
+
+- **Apptainer** (or Singularity) on every compute node — all tools run in
+  containers pulled from `config/containers.yaml`.
+- **conda/mamba** on the submit host (Python env from `environment.yml`).
+- `git`, `wget`, `lftp`, `samtools` for resource download/assembly.
+- ~60 GB free disk for `resources/hg38/`.
+- A SLURM cluster is optional (see [docs/SLURM_USAGE.md](docs/SLURM_USAGE.md)).
+
+---
+
+## 1. Setup (once, on the server)
 
 ```bash
-git clone https://github.com/tjbaelab/somatic-variant-pipeline
+git clone <repo-url> BSMN_pipeline_ij && cd BSMN_pipeline_ij
+bash scripts/server_setup.sh
 ```
 
-Create a [conda](https://docs.conda.io/en/latest/miniconda.html) environment from YAML file to install software dependencies running the following commands.
-By default, the name of environment will be `bp`. you can change it by adding a `-n your_name` option.
+`server_setup.sh` performs all of:
+1. create the conda env (`environment.yml`)
+2. pull Apptainer containers (`scripts/prepare_containers.py`)
+3. download + index public references (`scripts/download_and_index_hg38.sh`):
+   reference FASTA, dbSNP, Mills, 1000G SNPs, contamination resource,
+   af-only-gnomAD (Mutect2 germline resource) + its AF>0.001 SNP lookup,
+   and the 1KG strict mask BED
+4. assemble the PON mask FASTA and clone the MosaicForecast RF model
+5. verify every required resource is present (fails loudly if any is missing)
+
+---
+
+## 2. Configure
+
+Edit `config/config.yaml` (production) — key fields: `ref`, `known_sites`,
+`calling.chromosomes`, `calling.germline_resource`, and the `filtering` block.
+Resource and memory/thread values are auto-resolved at runtime by
+`scripts/auto_params.py`.
+
+### Sample sheet (`config/samples.tsv`)
+
+Two schemas, auto-detected by column names:
+
+```
+# fastq mode — runs full mapping -> calling -> filtering
+sample_id    readgroup    fq1                 fq2
+HG002        RG1          /data/HG002.R1.fq.gz /data/HG002.R2.fq.gz
+
+# bam mode — pre-aligned BAM/CRAM, skips mapping (see config/samples.bam.example.tsv)
+sample_id    bam
+AN02255      /data/AN02255.cram
+```
+
+`run.py` can generate `samples.tsv` for you from a FASTQ directory.
+
+---
+
+## 3. Run
+
+### Local
+
 ```bash
-conda env create -f /path/to/pipeline/environment.yml
-```
-Instead you can use a different YAML file for a version-fixed conda environment where major tools for alignment and variant calling are frozen with their exact versions we used in BSMN data analyses as follows:
-* bwa 0.7.17
-* picard 2.17.4
-* GATK3 3.7
-* GATK4 4.1.2
+# one-shot from a FASTQ directory (auto-builds samples.tsv, runs all stages)
+python run.py /data/fastq/ --cores 40 --stage all
 
-By default, the name of frozen environment will be `bp_frozen`.
+# stage by stage
+python run.py /data/fastq/ --stage mapping
+python run.py /data/fastq/ --stage calling
+python run.py /data/fastq/ --stage filtering
+
+# plan only
+python run.py /data/fastq/ --dry-run
+```
+
+Or drive Snakemake directly (e.g. for bam-mode sample sheets):
+
 ```bash
-conda env create -f /path/to/pipeline/environment_frozen.yml
+snakemake --snakefile workflow/Snakefile --config stage=filtering --cores 16
 ```
 
-Install ucsc-\* software packages.
+### SLURM cluster
+
 ```bash
-conda install -n bp -c bioconda ucsc-fetchchromsizes ucsc-bigwigaverageoverbed ucsc-wigtobigwig ucsc-liftover
-# If you are on bp_frozen
-conda install -n bp_frozen -c bioconda ucsc-fetchchromsizes ucsc-bigwigaverageoverbed ucsc-wigtobigwig ucsc-liftover
+export SBATCH_PARTITION=cpu-long SBATCH_ACCOUNT=mygroup
+python run.py /data/cohort/ --cluster slurm --stage all
 ```
 
-Due to license restrictions, you need to download a copy of GATK3 from the Broad Institute.
-```bash
-conda activate bp # Make sure you've activated the environment you are working on.
-wget -qO- https://storage.googleapis.com/gatk-software/package-archive/gatk/GenomeAnalysisTK-3.8-1-0-gf15c1c3ef.tar.bz2 \
-     |tar xj --strip=1 */GenomeAnalysisTK.jar
-gatk3-register GenomeAnalysisTK.jar
-rm GenomeAnalysisTK.jar # Once register, you can delete the downloaded file.
+See [docs/SLURM_USAGE.md](docs/SLURM_USAGE.md) for partition/account overrides,
+monitoring, and tuning.
+
+---
+
+## 4. Output
+
+Final somatic/mosaic SNV list per sample (4-column `chrom pos ref alt`):
+
 ```
-If you are on the frozen environment (`bp_frozen`), you should download a copy of verion 3.7.
-```bash
-conda activate bp_frozen # Make sure you've activated the environment you are working on.
-wget -qO- https://storage.googleapis.com/gatk-software/package-archive/gatk/GenomeAnalysisTK-3.7-0-gcfedb67.tar.bz2 \
-     |tar xj GenomeAnalysisTK.jar
-gatk-register GenomeAnalysisTK.jar # Not gatk3-register here.
-rm GenomeAnalysisTK.jar
+results/filtering/{sample}/{sample}.final.txt
 ```
 
-Install [MosaicForecast](https://github.com/parklab/MosaicForecast).
-```bash
-cd /path/to/conda/environment # Optional, any directory would be ok if you set it properly in config.ini
-git clone https://github.com/parklab/MosaicForecast.git
-```
-Then, you should checkout the specific revision (`63d8e60`) as following:
-```bash
-cd MosaicForecast
-git checkout 63d8e60
-```
+`python scripts/run_summary.py --sample {sample}` prints a per-step cascade
+summary (input -> kept counts) from the run logs.
 
-## Downloading resources
-Download all required resource files including the human reference sequences. This step would take some time to complete.
-```bash
-cd /path/to/pipeline
-./download_resources.sh
-```
+---
 
-The following reference and resource data will be downloaded from the [GATK resource bundle](https://gatk.broadinstitute.org/hc/en-us/articles/360035890811-Resource-bundle) repository.
-* Human reference sequences, along with fai and dict files for b37/hg19 and GRCh38/hg38 reference builds. 
-* dbSNP in VCF.
-* HapMap genotypes and sites VCF.
-* OMNI 2.5 genotypes for 1000 Genomes samples, as well as sites, VCF.
-* Best set of known indels to be used for local realignment.
-  * 1000 Genomes Phase I indel calls.
-  * Mills and 1000G gold standard indels.
-* 1000G phase 1 for genotype refinement.
+## Validation / examples
 
-The following resource files for variant filtering will be downloaded from our github repository.
-* One merged file that contains [genome hg19 strict mask for all chromosomes from 1000 Genomes Project](ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/supporting/accessible_genome_masks/StrictMask) (`1KG.20141020.strict_mask.hg19_GRCh37.fa.gz`)
-* One merged file that contains [genome hg38 strict mask for all chromosomes from 1000 Genomes Project](http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38) (`1KG.20160622.strict_mask.hg38_GRCh38.fa.gz`)
-* [gnomAD](https://gnomad.broadinstitute.org) variants with population AF > 0.001
-* Panel Of Normal (PON) mask
+- `config/config.validation.yaml` — chr22 validation run.
+- `config/config.chr20.yaml` + `config/samples.bam.example.tsv` — end-to-end
+  chr20 example from a pre-aligned BAM/CRAM (HG002).
+- [docs/PRODUCTION_VALIDATION.md](docs/PRODUCTION_VALIDATION.md) — pre-production
+  runtime checks (external-tool output contracts that must be confirmed on real
+  data before the first full run).
+- [PIPELINE.md](PIPELINE.md) — architecture and design notes.
 
-# Usage
-You don't need to manually activate the conda environment before running the pipeline. It will be taken care of by the pipeline. All commands below should be running in the directory where you want to get results.
+---
 
-## Configuring pipeline
-If you changed any locations of tools or resources, you need to set them properly in following config files for each reference genome.
-```
-/path/to/pipeline/config.{b37,h19,h38}.ini
-```
+## Contributing
 
-## sample\_list.txt format
-The lines starting with # will be commented out and ignored.
-If you have fastq files,
-```
-#sample_id    file_name                       location (full path)
-FVLT          FVLT_S15_L003_R1_001.fastq.gz   /path/to/FVLT_S15_L003_R1_001.fastq.gz
-FVLT          FVLT_S15_L003_R2_001.fastq.gz   /path/to/FVLT_S15_L003_R2_001.fastq.gz
-```
-If you have cram (or bam) files,
-```
-#sample_id    file_name       location (full path)
-AN02255       AN02255.cram    /path/to/AN02255.cram
-```
-
-## Genome mapping
-Align fastq files to a reference genome to make a aligned cram, an ummapped bam and flagstats.
-```bash
-python3 /path/to/pipeline/jobs/run_genome_mapping.py \
-        -q your_queue \
-        --sample-list /path/to/sample_list.txt
-```
-If you are going to use the frozen conda environment, you need to set `-n bp_frozen`.
-### options
-```
--q, --queue        specify the SGE queue for jobs to be submitted.
--n, --conda-env    specify the name of conda environment (default: bp)
--t, --target-seq   enable targeted sequencing mode to skip mark duplication.
--f, --align-fmt    specify alignment format (cram|bam). Default is cram.
--r, --reference    specify reference genome (b37|hg19|hg38). Default is b37 (GRCh37).
---sample-list      specify sample_list.txt file
--p, --run-gatk-hc  once alignment complete, run the variant calling with the given ploidy options.
---run-filters      once variant calling complete, run the varinat filtering as well.
-```
-
-## Variant calling
-If you've already done aligning, you can run from the variant calling pipeline.
-Given the BAM file, run the GATK4 HaplotypeCaller with the given ploidy options.
-```bash
-python3 /path/to/pipeline/jobs/run_variant_calling.py \
-        -q your_queue \
-        -p 2 12 50 \
-        --sample-list /path/to/sample_list.txt
-```
-If you are going to use the frozen conda environment, you need to set `-n bp_frozen`.
-### options
-```
--q, --queue        specify the SGE queue for jobs to be submitted.
--n, --conda-env    specify the name of conda environment (default: bp)
--f, --align-fmt    specify alignment format (cram|bam). Default is cram.
--r, --reference    specify reference genome (b37|hg19|hg38). Default is b37 (GRCh37).
---sample-list      specify sample_list.txt file
--p, --run-gatk-hc  specify ploidy options used by GATK.
---run-filters      once variant calling complete, run the varinat filtering as well.
-```
-
-## Variant filtering
-If you've already done aligning and calling variants, you can run from the variant filtering pipeline. In such case, you need to specify a directory where your existing vcf files are using -v (--vcf-directory) option.
-VCF and index file names should be formed as follows:
-```
-<sample name>.ploidy_<ploidy>.vcf.gz
-<sample name>.ploidy_<ploidy>.vcf.gz.tbi
-```
-Given the BAM and VCF files, run the variant filtering.
-```bash
-python3 /path/to/pipeline/jobs/run_variant_filtering.py \
-        -q your_queue \
-        -p 50 \
-        --sample-list /path/to/sample_list.txt
-```
-### options
-```
--q, --queue          specify the SGE queue for jobs to be submitted.
--n, --conda-env      specify the name of conda environment (default: bp)
--f, --align-fmt      specify alignment format (cram|bam). Default is cram.
--r, --reference      specify reference genome (b37|hg19|hg38). Default is b37 (GRCh37).
---sample-list        specify sample_list.txt file
--p, --run-gatk-hc    specify ploidy options used by GATK.
---skip-cnvnator      skip the CNV filering
--v, --vcf-directory  If you have VCF files elsewhere, specify the directory where VCF files are.
-```
-
-# Contributing
-
-The `master` branch is protected. To make introduce changes:
-
-1. Fork this repository
-2. Open a branch with your github username and a short descriptive statement (like `kdaily-update-readme`). If there is an open issue on this repository, name your branch after the issue (like `kdaily-issue-7`).
-3. Open a pull request and request a review.
+The `main` branch is protected. Fork, branch with a descriptive name, open a PR,
+and request a review.

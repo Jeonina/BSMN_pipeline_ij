@@ -63,25 +63,15 @@ bash scripts/download_and_index_hg38.sh resources/hg38
 echo "  → Public resources downloaded"
 
 # ---------------------------------------------------------------------------
-# 4. Assemble split resource files
+# 4. Assemble split resource files + clone MosaicForecast model
 # ---------------------------------------------------------------------------
 echo ""
-echo "[4/5] Assembling split resource files..."
+echo "[4/5] Assembling custom resources..."
 
-# gnomAD: cat parts → resources/hg38/
-GNOMAD_OUT="resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
-GNOMAD_PARTS=(
-    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partaa
-    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partab
-    downloads/gnomAD.r2.1.1.AFover0.001.snps.txt.gz.partac
-)
-if [[ ! -f "$GNOMAD_OUT" ]] || [[ $(stat -c%s "$GNOMAD_OUT") -lt 1000 ]]; then
-    echo "  → Assembling gnomAD..."
-    cat "${GNOMAD_PARTS[@]}" > "$GNOMAD_OUT"
-    echo "  ✓ $GNOMAD_OUT"
-else
-    echo "  ✓ $GNOMAD_OUT (already assembled)"
-fi
+# NOTE: the gnomAD germline lookup (gnomAD.hg38.AFover0.001.snps.txt.gz) is built
+# by download_and_index_hg38.sh Step 6 from the hg38 af-only VCF — do NOT assemble
+# the legacy hg19 gnomAD.r2.1.1 lookup here (M-FIX-004: hg19 coords let ~99% of
+# common germline variants leak through germline_filter).
 
 # PON: cat parts → gunzip → resources/hg38/
 PON_OUT="resources/hg38/PON.q20q20.05.5.fa"
@@ -100,6 +90,24 @@ else
     echo "  ✓ $PON_OUT (already assembled)"
 fi
 
+# MosaicForecast: clone repo for the trained RF model (default E-step model,
+# config filtering.mosaicforecast.model). The container ships the MF scripts +
+# k24 bigwig but NOT the models_trained/*.rds files.
+MF_DIR="resources/MosaicForecast"
+MF_MODEL="$MF_DIR/models_trained/250xRFmodel_addRMSK_Refine.rds"
+if [[ -f "$MF_MODEL" ]]; then
+    echo "  ✓ $MF_MODEL (already present)"
+else
+    echo "  → Cloning MosaicForecast (for trained RF model)..."
+    rm -rf "$MF_DIR"
+    git clone --depth 1 https://github.com/parklab/MosaicForecast.git "$MF_DIR"
+    if [[ -f "$MF_MODEL" ]]; then
+        echo "  ✓ $MF_MODEL"
+    else
+        echo "  ✗ MosaicForecast clone did not contain $MF_MODEL"
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # 5. Verify resources
 # ---------------------------------------------------------------------------
@@ -114,10 +122,13 @@ REQUIRED_FILES=(
     "resources/hg38/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
     "resources/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
     "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
-    "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.fa.gz"
-    "resources/hg38/gnomAD.r2.1.1.AFover0.001.snps.txt.gz"
+    "resources/hg38/af-only-gnomad.hg38.vcf.gz"
+    "resources/hg38/small_exac_common_3.hg38.vcf.gz"
+    "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.bed"
+    "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
     "resources/hg38/PON.q20q20.05.5.fa"
     "resources/hg38/PON.q20q20.05.5.fa.fai"
+    "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
 )
 
 ALL_OK=true

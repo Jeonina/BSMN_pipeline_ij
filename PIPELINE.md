@@ -76,13 +76,16 @@ FASTQ (per readgroup)
 - `--germline-resource`: gnomAD
 - chromosome-level scatter → merge → FilterMutectCalls
 
-### Step 3: Filtering (추후 구현)
-BSMN 원본 필터링 로직 이식. 아래 순서로 적용:
+### Step 3: Filtering (구현 완료)
+BSMN 원본 필터링 로직 이식. 현재 기본 cascade는 6단계이며, 정본은
+`workflow/rules/filtering.smk` (아래는 요약):
 
 1. **Accessibility filter**: 1KG strict mask (mappability)
 2. **Germline filter**: gnomAD AF > 0.001 제거
 3. **VAF filter**: binomial test (p < 1e-6) AND alt_count >= 5 (BAM 직접 pileup 방식 유지)
-4. **PON mask**: IUPAC FASTA 방식 (GATK Mutect2 `--panel-of-normals`와 별개로 추가 적용)
+4. **CNVnator filter**: BSMN D-step, CN >= 2.5 영역 제거
+5. **MosaicForecast filter**: BSMN E-step, 학습된 RF mosaic 예측 (mayo는 미연결 대안)
+6. **PON mask**: IUPAC FASTA 방식 (GATK Mutect2 `--panel-of-normals`와 별개로 추가 적용)
 
 ---
 

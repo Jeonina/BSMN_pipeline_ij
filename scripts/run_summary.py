@@ -155,7 +155,8 @@ def main() -> None:
 
     total_sec = 0.0
     for step_name, log_tmpl, elapsed_pat, extra_pats in STEPS:
-        log_path = os.path.join(args.log_dir, log_tmpl.format(sample=args.sample).lstrip("logs/"))
+        rel = log_tmpl.format(sample=args.sample).removeprefix("logs/")
+        log_path = os.path.join(args.log_dir, rel)
         # support both absolute and relative path
         if not os.path.exists(log_path):
             log_path = log_tmpl.format(sample=args.sample)

@@ -101,7 +101,6 @@ rule germline_filter:
         txt=temp("results/filtering/{sample}/{sample}.germline_filtered.txt"),
     params:
         gnomad_snps=_filtering.get("gnomad", {}).get("snps", ""),
-        af_threshold=_filtering.get("gnomad", {}).get("af_threshold", 0.001),
         script=os.path.join(_SCRIPTS, "germline_filter.py"),
     log:
         "logs/filtering/{sample}/germline_filter.log",

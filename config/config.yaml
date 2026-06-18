@@ -19,7 +19,7 @@ stage: "mapping"
 
 # -- Reference genome ---------------------------------------------------------
 ref:
-  build: "hg38"
+  build: "hg38"                  # informational only — not read by the rules
   fasta: "resources/hg38/Homo_sapiens_assembly38.fasta"
   dict:  "resources/hg38/Homo_sapiens_assembly38.dict"
 
@@ -27,9 +27,13 @@ ref:
 known_sites:
   dbsnp:   "resources/hg38/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
   mills:   "resources/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
+  # SNP high-confidence set used as an additional BQSR known-sites VCF.
   indels:  "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
 
 # -- Mapping parameters -------------------------------------------------------
+# NOTE: thread/memory values below are AUTO-RESOLVED at runtime by
+# scripts/auto_params.py (RESOLVED.*) and are NOT read from this file — editing
+# them has no effect; output_format is fixed to cram by the rules. Kept for ref.
 mapping:
   bwa_threads: 16
   sort_threads: 4
@@ -39,7 +43,7 @@ mapping:
 
 # -- Mutect2 calling parameters -----------------------------------------------
 calling:
-  caller: "mutect2"              # mutect2 (haplotypecaller planned)
+  caller: "mutect2"              # informational only — Mutect2 is hardcoded in rules
 
   # Chromosomes for scatter-gather (one Mutect2 job per entry)
   chromosomes:
@@ -81,20 +85,25 @@ calling:
   filter_extra: "--min-reads-per-strand 1"
 
 # -- Filtering parameters -----------------------------------------------------
+# Default cascade order (see workflow/rules/filtering.smk):
+#   1 accessibility(mask_1kg) -> 2 germline(gnomad) -> 3 vaf -> 4 cnvnator ->
+#   5 mosaicforecast -> 6 pon_mask.   (mayo is the unwired E-step alternative.)
 filtering:
-  # A. gnomAD germline filter
+  # Step 2: germline filter (remove gnomAD AF > 0.001 known germline)
   gnomad:
     snps: "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
+    # af_threshold documents the cut already baked into the snps file above;
+    # germline_filter uses set membership only (value is not re-applied).
     af_threshold: 0.001
 
-  # B. VAF filter
+  # Step 3: VAF filter
   vaf:
     min_alt_count: 5
     p_binom_threshold: 1.0e-6
     min_mapq: 20
     min_baseq: 20
 
-  # C. CNVnator filter (BSMN D-step: drop CNV-region calls, CN >= threshold)
+  # Step 4: CNVnator filter (BSMN D-step: drop CNV-region calls, CN >= threshold)
   #   ROOT built per sample by rule cnvnator_root (binsize 100). v0.4.1 reads
   #   the reference via -fasta, so no per-chromosome split is required.
   cnvnator:
@@ -102,7 +111,8 @@ filtering:
     cn_threshold: 2.5      # drop candidate if genotyped copy number >= this
     window: 1000           # +/-bp window genotyped around each candidate
 
-  # D. Mayo filter (BSMN E-step: strand bias + repeat + multiallelic)
+  # BSMN E-step ALTERNATIVE to MosaicForecast — retained but UNWIRED by default
+  # (to enable, repoint mosaicforecast_filter.input.txt at mayo_filtered.txt).
   mayo:
     max_repeat_n: 4         # reject if repeat_n >= this
     max_repeat_length: 10   # reject if repeat_length >= this
@@ -110,7 +120,7 @@ filtering:
     min_mapq: 20
     min_baseq: 20
 
-  # D. MosaicForecast filter (BSMN E-step: RF mosaic prediction)
+  # Step 5: MosaicForecast filter (BSMN E-step, DEFAULT: RF mosaic prediction)
   #   Scripts + k24.umap.wg.bw ship inside the mosaicforecast image; the RF
   #   model is cloned to resources/MosaicForecast/. Pick the model by depth
   #   (250x for ~300x HG002; 200x for the brain WGS study).
@@ -121,14 +131,16 @@ filtering:
     timeout: 300            # per-variant feature-extraction timeout (s)
     retries: 5
 
-  # E. PON mask
+  # Step 6: PON mask
   pon_mask:
     fasta: "resources/hg38/PON.q20q20.05.5.fa"
 
-  # D. 1KG strict mask (mappability)
+  # Step 1: accessibility — 1KG strict mask (mappability)
   mask_1kg: "resources/hg38/1KG.20160622.strict_mask.hg38_GRCh38.bed"
 
-# -- SLURM resource defaults (overridden by profiles/slurm/config.yaml) -------
+# -- SLURM resource defaults --------------------------------------------------
+# NOTE: not read by the workflow — per-rule resources come from the rules and the
+# SLURM profile (workflow/profiles/slurm/config.yaml). Kept for reference only.
 resources:
   default:
     mem_mb: 8000

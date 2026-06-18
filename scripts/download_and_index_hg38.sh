@@ -202,14 +202,27 @@ echo "[Step 5] Done."
 # variants leak through germline_filter.
 
 echo ""
-echo "[Step 6] Generating gnomAD hg38 SNP lookup..."
+echo "[Step 6] gnomAD hg38: download af-only VCF + build SNP lookup..."
 
 GNOMAD_VCF="af-only-gnomad.hg38.vcf.gz"
 GNOMAD_LOOKUP="gnomAD.hg38.AFover0.001.snps.txt.gz"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BROAD_FTP="ftp://gsapubftp-anonymous@ftp.broadinstitute.org/bundle/Mutect2"
 
+# 6a. af-only-gnomad.hg38.vcf.gz — this is ALSO Mutect2's --germline-resource
+#     (config calling.germline_resource). Building the germline lookup from this
+#     same hg38 VCF guarantees the lookup coordinates match Mutect2's calls.
+if [[ -f "$GNOMAD_VCF" && -f "${GNOMAD_VCF}.tbi" ]]; then
+  echo "  [SKIP] $GNOMAD_VCF already exists"
+else
+  echo "  Downloading $GNOMAD_VCF via FTP (requires lftp)..."
+  lftp -c "open ${BROAD_FTP}; get ${GNOMAD_VCF} -o ${GNOMAD_VCF}; get ${GNOMAD_VCF}.tbi -o ${GNOMAD_VCF}.tbi"
+fi
+
+# 6b. Flat SNP lookup for germline_filter (M-FIX-004: MUST be hg38 coords)
 if [[ ! -f "$GNOMAD_VCF" ]]; then
-  echo "  [SKIP] $GNOMAD_VCF not present in $(pwd); copy it here and re-run to build the lookup"
+  echo "  [FAIL] $GNOMAD_VCF missing after download — cannot build lookup"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
 elif [[ -f "$GNOMAD_LOOKUP" ]]; then
   echo "  [SKIP] $GNOMAD_LOOKUP already exists"
 else

@@ -1,5 +1,12 @@
 # ERR194146 — WGS Production Run Statistics
 
+> **SUPERSEDED (historical record).** This run predates two changes: (1) the
+> `vaf_filter` depth-counting bug fix (commit `ac0c340`) — the "mosaic = 0"
+> conclusion here was a bug artifact; see `reports/benchmark_2026-06-02/` for the
+> corrected result. (2) the cnvnator + mosaicforecast filter steps — the cascade
+> below shows only 4 filters; the current default cascade has 6 (see README /
+> `workflow/rules/filtering.smk`). Kept for provenance only.
+
 First end-to-end production run of the refactored Snakemake BSMN somatic
 variant-calling pipeline. SPEC-BSMN-REFACTOR-001.
 
