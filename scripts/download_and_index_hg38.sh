@@ -14,6 +14,10 @@
 
 set -uo pipefail
 
+# Resolve the scripts/ dir BEFORE cd into OUTDIR (BASH_SOURCE is relative to the
+# caller's CWD; computing it after the cd below would break — see Step 6).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 OUTDIR=${1:-./resources_hg38}
 mkdir -p "$OUTDIR"
 cd "$OUTDIR"
@@ -206,7 +210,7 @@ echo "[Step 6] gnomAD hg38: download af-only VCF + build SNP lookup..."
 
 GNOMAD_VCF="af-only-gnomad.hg38.vcf.gz"
 GNOMAD_LOOKUP="gnomAD.hg38.AFover0.001.snps.txt.gz"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# SCRIPT_DIR is captured at the top of this script (before cd "$OUTDIR").
 BROAD_FTP="ftp://gsapubftp-anonymous@ftp.broadinstitute.org/bundle/Mutect2"
 
 # 6a. af-only-gnomad.hg38.vcf.gz — this is ALSO Mutect2's --germline-resource
