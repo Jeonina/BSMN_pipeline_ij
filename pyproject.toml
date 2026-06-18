@@ -133,6 +133,7 @@ omit = [
     "scripts/analyze_candidate_fps.py",
     "scripts/test_pon_mask.py",
     "scripts/test_confident_bed.py",
+    "scripts/compare_masks.py",
 ]
 
 [tool.coverage.report]
