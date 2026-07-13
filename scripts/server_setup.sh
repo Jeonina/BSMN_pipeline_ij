@@ -8,7 +8,9 @@
 #   bash scripts/server_setup.sh
 #
 # Requirements on server:
-#   - git, apptainer, conda (or mamba), wget, samtools, lftp
+#   - git, apptainer (>=1.2.5), python3 (>=3.9, with venv), wget, lftp
+#   - No conda: host Python deps install into a local .venv from requirements.txt;
+#     all bio tools (bwa/samtools/gatk/...) run inside Apptainer containers.
 #   - Internet access (for resource download and container pull)
 #   - ~60 GB free disk space for resources/hg38/
 #
@@ -23,22 +25,29 @@ cd "$REPO_DIR"
 echo "[setup] Working directory: $REPO_DIR"
 
 # ---------------------------------------------------------------------------
-# 1. Conda environment
+# 1. Python virtual environment (venv + pip; no conda)
 # ---------------------------------------------------------------------------
 echo ""
-echo "[1/5] Setting up conda environment..."
+echo "[1/5] Setting up Python venv..."
 
-if conda env list | grep -q "^bp "; then
-    echo "  → conda env 'bp' already exists, skipping create"
+VENV_DIR=".venv"
+if [[ -d "$VENV_DIR" ]]; then
+    echo "  → venv '$VENV_DIR' already exists, skipping create"
 else
-    conda env create -f environment.yml
-    echo "  → conda env 'bp' created"
+    python3 -m venv "$VENV_DIR"
+    echo "  → venv '$VENV_DIR' created"
 fi
 
 # Activate for subsequent commands
 # shellcheck disable=SC1091
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate bp
+source "$VENV_DIR/bin/activate"
+python3 -m pip install --upgrade pip >/dev/null
+python3 -m pip install -r requirements.txt
+echo "  → host Python deps installed"
+
+# SIF path for the few bare tool calls in this script
+# (single source of truth: config/containers.yaml)
+SAMTOOLS_SIF="$(python3 -c "import yaml; print(yaml.safe_load(open('config/containers.yaml'))['samtools']['sif'])")"
 
 # ---------------------------------------------------------------------------
 # 2. Pull Apptainer containers
@@ -56,7 +65,7 @@ echo "  → All containers ready"
 echo ""
 echo "[3/5] Downloading public reference resources..."
 echo "  (This may take 1–3 hours depending on network speed)"
-echo "  Requires: wget, samtools, lftp"
+echo "  Requires: wget, lftp, apptainer"
 
 mkdir -p resources/hg38
 bash scripts/download_and_index_hg38.sh resources/hg38
@@ -84,7 +93,7 @@ PON_PARTS=(
 if [[ ! -f "$PON_OUT" ]]; then
     echo "  → Assembling PON..."
     cat "${PON_PARTS[@]}" | gunzip -c > "$PON_OUT"
-    samtools faidx "$PON_OUT"
+    apptainer exec "$SAMTOOLS_SIF" samtools faidx "$PON_OUT"
     echo "  ✓ $PON_OUT"
 else
     echo "  ✓ $PON_OUT (already assembled)"
@@ -158,7 +167,7 @@ echo ""
 echo "=========================================="
 echo " Setup complete. Run the pipeline:"
 echo ""
-echo "  conda activate bp"
+echo "  source .venv/bin/activate"
 echo "  cd $REPO_DIR"
 echo ""
 echo "  # Mapping only:"

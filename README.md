@@ -48,7 +48,7 @@ retained but unwired (re-point `mosaicforecast_filter`'s input at
 
 - **Apptainer** (or Singularity) on every compute node — all tools run in
   containers pulled from `config/containers.yaml`.
-- **conda/mamba** on the submit host (Python env from `environment.yml`).
+- **Python 3.9+ with `venv`** on the submit host (deps from `requirements.txt`; no conda).
 - `git`, `wget`, `lftp`, `samtools` for resource download/assembly.
 - ~60 GB free disk for `resources/hg38/`.
 - A SLURM cluster is optional (see [docs/SLURM_USAGE.md](docs/SLURM_USAGE.md)).
@@ -63,7 +63,7 @@ bash scripts/server_setup.sh
 ```
 
 `server_setup.sh` performs all of:
-1. create the conda env (`environment.yml`)
+1. create the Python venv (`.venv`) and install `requirements.txt`
 2. pull Apptainer containers (`scripts/prepare_containers.py`)
 3. download + index public references (`scripts/download_and_index_hg38.sh`):
    reference FASTA, dbSNP, Mills, 1000G SNPs, contamination resource,

@@ -1,0 +1,10 @@
+# Host Python environment for the Apptainer-based BSMN pipeline (venv + pip; no conda).
+# All bioinformatics tools run inside Apptainer containers (config/containers.yaml);
+# these are only the host-side orchestration + filtering libraries.
+snakemake
+pandas
+numpy
+scipy
+statsmodels
+pyyaml
+psutil

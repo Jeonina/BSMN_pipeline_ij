@@ -8,7 +8,8 @@
 #   bash download_and_index_hg38.sh [output_dir]
 #   (default output_dir: ./resources_hg38)
 #
-# Requirements: wget, bwa, samtools, gatk (or picard)
+# Requirements: wget, lftp, apptainer, python3 (with pyyaml)
+# Bio tools (bwa/samtools/gatk) run inside Apptainer containers (config/containers.yaml).
 # RAM: BWA index requires ~32GB
 # =============================================================================
 
@@ -17,6 +18,17 @@ set -uo pipefail
 # Resolve the scripts/ dir BEFORE cd into OUTDIR (BASH_SOURCE is relative to the
 # caller's CWD; computing it after the cd below would break — see Step 6).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Resolve Apptainer SIF paths from config/containers.yaml (single source of truth).
+# Needs pyyaml (provided by the project .venv / requirements.txt).
+_sif() {
+  python3 -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))[sys.argv[2]]['sif'])" \
+    "$REPO_ROOT/config/containers.yaml" "$1"
+}
+BWA_SIF="$REPO_ROOT/$(_sif bwa)"
+SAMTOOLS_SIF="$REPO_ROOT/$(_sif samtools)"
+GATK_SIF="$REPO_ROOT/$(_sif gatk)"
 
 OUTDIR=${1:-./resources_hg38}
 mkdir -p "$OUTDIR"
@@ -57,28 +69,22 @@ echo "[Step 2] Building index files..."
 if [[ -f "${REF_FINAL}.fai" ]]; then
   echo "  [SKIP] .fai already exists"
 else
-  echo "  Running samtools faidx..."
-  samtools faidx "$REF_FINAL"
+  echo "  Running samtools faidx (via Apptainer)..."
+  apptainer exec "$SAMTOOLS_SIF" samtools faidx "$REF_FINAL"
 fi
 
 if [[ -f "${REF_FINAL%.fasta}.dict" ]]; then
   echo "  [SKIP] .dict already exists"
 else
-  echo "  Creating sequence dictionary..."
-  if command -v gatk &>/dev/null; then
-    gatk CreateSequenceDictionary -R "$REF_FINAL"
-  elif command -v picard &>/dev/null; then
-    picard CreateSequenceDictionary R="$REF_FINAL" O="${REF_FINAL%.fasta}.dict"
-  else
-    samtools dict "$REF_FINAL" > "${REF_FINAL%.fasta}.dict"
-  fi
+  echo "  Creating sequence dictionary (via Apptainer)..."
+  apptainer exec "$GATK_SIF" gatk CreateSequenceDictionary -R "$REF_FINAL"
 fi
 
 if [[ -f "${REF_FINAL}.sa" ]]; then
   echo "  [SKIP] BWA index already exists"
 else
-  echo "  Running bwa index (this takes ~1 hour, needs ~32GB RAM)..."
-  bwa index "$REF_FINAL"
+  echo "  Running bwa index (via Apptainer; this takes ~1 hour, needs ~32GB RAM)..."
+  apptainer exec "$BWA_SIF" bwa index "$REF_FINAL"
 fi
 
 echo "[Step 2] Done."
