@@ -2,13 +2,13 @@
 # =============================================================================
 # Download hg38 resources & build BWA index
 # Based on BSMN pipeline (Broad GATK bundle)
-# Sources: NCBI, EBI (Google Cloud Storage blocked)
+# Sources: Broad GATK hg38 bundle on public Google Cloud Storage (HTTPS, no auth)
 #
 # Usage:
 #   bash download_and_index_hg38.sh [output_dir]
 #   (default output_dir: ./resources_hg38)
 #
-# Requirements: wget, lftp, apptainer, python3 (with pyyaml)
+# Requirements: wget, apptainer, python3 (with pyyaml)
 # Bio tools (bwa/samtools/gatk) run inside Apptainer containers (config/containers.yaml).
 # RAM: BWA index requires ~32GB
 # =============================================================================
@@ -113,51 +113,20 @@ download_vcf() {
   fi
 }
 
-# 3a. dbSNP - NCBI
-DBSNP_URL="https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh38p7/VCF/GATK"
-download_vcf "Homo_sapiens_assembly38.dbsnp138.vcf.gz"     "$DBSNP_URL/00-All.vcf.gz"
-download_vcf "Homo_sapiens_assembly38.dbsnp138.vcf.gz.tbi" "$DBSNP_URL/00-All.vcf.gz.tbi"
+# Broad GATK hg38 resource bundle — public GCS, direct HTTPS (no FTP/auth).
+GPD="https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0"
 
-# 3b. Mills indels - EBI (try multiple paths)
-MILLS="Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
-EBI_1="https://ftp.ebi.ac.uk/pub/databases/1000genomes/ftp/technical/reference/GRCh38_reference_genome/other_mapping_resources"
-EBI_2="https://ftp.ebi.ac.uk/pub/databases/1000genomes/ftp/technical/reference/GRCh38_reference_genome"
-for suffix in "" ".tbi"; do
-  if [[ -f "${MILLS}${suffix}" ]]; then
-    echo "  [SKIP] ${MILLS}${suffix} already exists"
-  else
-    echo "  Downloading ${MILLS}${suffix} (trying EBI path 1)..."
-    if wget -c -q --show-progress -O "${MILLS}${suffix}" "$EBI_1/Mills_and_1000G_gold_standard.indels.b38.primary_assembly.vcf.gz${suffix}" 2>/dev/null; then
-      echo "  [OK] ${MILLS}${suffix}"
-    else
-      echo "  EBI path 1 failed, trying path 2..."
-      if wget -c -q --show-progress -O "${MILLS}${suffix}" "$EBI_2/Mills_and_1000G_gold_standard.indels.b38.primary_assembly.vcf.gz${suffix}" 2>/dev/null; then
-        echo "  [OK] ${MILLS}${suffix}"
-      else
-        echo "  [FAIL] ${MILLS}${suffix} — could not download from EBI"
-        rm -f "${MILLS}${suffix}"
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-      fi
-    fi
-  fi
-done
+# 3a. dbSNP
+download_vcf "Homo_sapiens_assembly38.dbsnp138.vcf.gz"     "$GPD/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
+download_vcf "Homo_sapiens_assembly38.dbsnp138.vcf.gz.tbi" "$GPD/Homo_sapiens_assembly38.dbsnp138.vcf.gz.tbi"
 
-# 3c. 1000G SNPs - EBI
-KG="1000G_phase1.snps.high_confidence.hg38.vcf.gz"
-for suffix in "" ".tbi"; do
-  if [[ -f "${KG}${suffix}" ]]; then
-    echo "  [SKIP] ${KG}${suffix} already exists"
-  else
-    echo "  Downloading ${KG}${suffix} (trying EBI)..."
-    if wget -c -q --show-progress -O "${KG}${suffix}" "$EBI_1/ALL.wgs.1000G_phase3.GRCh38.ncbi_remapped.20150424.genotypes.vcf.gz${suffix}" 2>/dev/null; then
-      echo "  [OK] ${KG}${suffix}"
-    else
-      echo "  [FAIL] ${KG}${suffix} — could not download from EBI"
-      rm -f "${KG}${suffix}"
-      FAIL_COUNT=$((FAIL_COUNT + 1))
-    fi
-  fi
-done
+# 3b. Mills gold-standard indels
+download_vcf "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"     "$GPD/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"
+download_vcf "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi" "$GPD/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi"
+
+# 3c. 1000G high-confidence SNPs
+download_vcf "1000G_phase1.snps.high_confidence.hg38.vcf.gz"     "$GPD/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
+download_vcf "1000G_phase1.snps.high_confidence.hg38.vcf.gz.tbi" "$GPD/1000G_phase1.snps.high_confidence.hg38.vcf.gz.tbi"
 
 if [[ "$FAIL_COUNT" -gt 0 ]]; then
   echo ""
@@ -173,14 +142,10 @@ echo ""
 echo "[Step 4] Downloading contamination resource (small_exac_common)..."
 
 EXAC="small_exac_common_3.hg38.vcf.gz"
-BROAD_FTP="ftp://gsapubftp-anonymous@ftp.broadinstitute.org/bundle/Mutect2"
+GATK_BP="https://storage.googleapis.com/gatk-best-practices/somatic-hg38"
 
-if [[ -f "$EXAC" && -f "${EXAC}.tbi" ]]; then
-  echo "  [SKIP] $EXAC already exists"
-else
-  echo "  Downloading $EXAC via FTP (requires lftp)..."
-  lftp -c "open ${BROAD_FTP}; get ${EXAC} -o ${EXAC}; get ${EXAC}.tbi -o ${EXAC}.tbi"
-fi
+download_vcf "$EXAC"       "$GATK_BP/$EXAC"
+download_vcf "${EXAC}.tbi" "$GATK_BP/${EXAC}.tbi"
 
 echo "[Step 4] Done."
 
@@ -217,17 +182,13 @@ echo "[Step 6] gnomAD hg38: download af-only VCF + build SNP lookup..."
 GNOMAD_VCF="af-only-gnomad.hg38.vcf.gz"
 GNOMAD_LOOKUP="gnomAD.hg38.AFover0.001.snps.txt.gz"
 # SCRIPT_DIR is captured at the top of this script (before cd "$OUTDIR").
-BROAD_FTP="ftp://gsapubftp-anonymous@ftp.broadinstitute.org/bundle/Mutect2"
+GATK_BP="https://storage.googleapis.com/gatk-best-practices/somatic-hg38"
 
 # 6a. af-only-gnomad.hg38.vcf.gz — this is ALSO Mutect2's --germline-resource
 #     (config calling.germline_resource). Building the germline lookup from this
 #     same hg38 VCF guarantees the lookup coordinates match Mutect2's calls.
-if [[ -f "$GNOMAD_VCF" && -f "${GNOMAD_VCF}.tbi" ]]; then
-  echo "  [SKIP] $GNOMAD_VCF already exists"
-else
-  echo "  Downloading $GNOMAD_VCF via FTP (requires lftp)..."
-  lftp -c "open ${BROAD_FTP}; get ${GNOMAD_VCF} -o ${GNOMAD_VCF}; get ${GNOMAD_VCF}.tbi -o ${GNOMAD_VCF}.tbi"
-fi
+download_vcf "$GNOMAD_VCF"       "$GATK_BP/$GNOMAD_VCF"
+download_vcf "${GNOMAD_VCF}.tbi" "$GATK_BP/${GNOMAD_VCF}.tbi"
 
 # 6b. Flat SNP lookup for germline_filter (M-FIX-004: MUST be hg38 coords)
 if [[ ! -f "$GNOMAD_VCF" ]]; then
