@@ -114,7 +114,9 @@ download_vcf() {
 }
 
 # Broad GATK hg38 resource bundle — public GCS, direct HTTPS (no FTP/auth).
-GPD="https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0"
+# Use gcp-public-data--broad-references (anonymously readable); the older
+# genomics-public-data bucket is Requester-Pays and rejects anonymous wget.
+GPD="https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0"
 
 # 3a. dbSNP
 download_vcf "Homo_sapiens_assembly38.dbsnp138.vcf.gz"     "$GPD/Homo_sapiens_assembly38.dbsnp138.vcf.gz"
