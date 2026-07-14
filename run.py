@@ -69,7 +69,9 @@ def _row_for_pair(r1: Path, r2: Path, pattern: str | None) -> dict:
     }
 
 
-def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> list[dict]:
+def _resolve_inputs(
+    inputs: list[str], recursive: bool, pattern: str | None, sample_per_dir: bool = False
+) -> list[dict]:
     """입력 형태를 자동 판별하고 샘플 row 리스트를 반환.
 
     BAM-mode detection runs BEFORE the FASTQ cases so a pre-aligned
@@ -96,6 +98,7 @@ def _resolve_inputs(inputs: list[str], recursive: bool, pattern: str | None) -> 
             custom_pattern=pattern,
             split_fields=None,
             split_delim="_",
+            sample_per_dir=sample_per_dir,
         )
 
     # Case 2: R1 파일 하나 → R2 자동 탐색 (single pair only, no directory scan)
@@ -210,6 +213,12 @@ def main() -> None:
         metavar="REGEX",
         help="샘플명 추출용 커스텀 정규식 (make_samples_tsv --pattern 과 동일)",
     )
+    parser.add_argument(
+        "--sample-per-dir",
+        action="store_true",
+        dest="sample_per_dir",
+        help="각 하위 폴더를 한 시료로, 폴더 안 파일들을 read-group으로 취급 (재귀 포함, undecoded 자동 제외)",
+    )
 
     # ── Snakemake 추가 인자 passthrough ─────────────────────────────────────
     parser.add_argument(
@@ -232,7 +241,7 @@ def main() -> None:
     if samples_tsv.exists():
         samples_tsv.unlink()
 
-    rows = _resolve_inputs(args.input, args.recursive, args.pattern)
+    rows = _resolve_inputs(args.input, args.recursive, args.pattern, args.sample_per_dir)
 
     if not rows:
         _die("유효한 FASTQ 쌍을 찾지 못했습니다.")

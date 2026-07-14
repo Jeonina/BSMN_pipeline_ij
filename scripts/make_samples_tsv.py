@@ -47,6 +47,12 @@ R_MARKERS = [
     (r"\.1\.(fastq|fq)(\.gz)?$", ".2"),  # dot-separated .1 / .2
 ]
 
+# Demux leftovers — reads whose barcode matched no sample. These are never a
+# real sample and must not be merged into one (they mix reads across samples):
+#   BGI/MGI -> "undecoded",  Illumina bcl2fastq/BCL Convert -> "Undetermined".
+# Excluded by default from the sample sheet; kept on disk for QC only.
+_DEMUX_LEFTOVER_RE = re.compile(r"(?:undecoded|undetermined)", re.IGNORECASE)
+
 
 # ---------------------------------------------------------------------------
 # Built-in pattern registry
@@ -104,15 +110,20 @@ def find_r1_files(directory: str, recursive: bool) -> list[Path]:
         raise ValueError(f"Not a directory: {directory}")
 
     r1_files = []
+    excluded = 0
     glob_fn = root.rglob if recursive else root.glob
     for p in sorted(glob_fn("*")):
         if not p.is_file():
             continue
         fname = p.name
-        for r1_pat, _ in R_MARKERS:
-            if re.search(r1_pat, fname):
-                r1_files.append(p)
-                break
+        if not any(re.search(r1_pat, fname) for r1_pat, _ in R_MARKERS):
+            continue
+        if _DEMUX_LEFTOVER_RE.search(fname):  # undecoded / Undetermined — skip
+            excluded += 1
+            continue
+        r1_files.append(p)
+    if excluded:
+        print(f"[make_samples_tsv] Excluded {excluded} demux-leftover R1 file(s) (undecoded/Undetermined).")
     return r1_files
 
 
@@ -235,20 +246,46 @@ def detect_pattern(r1_files: list[Path]) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _sample_per_dir_ids(r1: Path) -> tuple[str, str]:
+    """sample_id = immediate parent directory; readgroup = filename remainder.
+
+    Convention for cohorts laid out as one directory per sample, with one or
+    more readgroup FASTQ pairs inside. The readgroup is the filename with the
+    R1 marker removed and the leading ``{sample_id}_`` prefix stripped, so
+    ``E250080627/E250080627_L01_UDB-385_1.fq.gz`` -> ("E250080627", "L01_UDB-385").
+    """
+    sample_id = r1.parent.name
+    base = r1.name
+    for r1_pat, _ in R_MARKERS:
+        base = re.sub(r1_pat, "", base)
+    rg = base[len(sample_id) + 1 :] if base.startswith(sample_id + "_") else base
+    return sample_id, (rg or "RG1")
+
+
 def build_table(
     directory: str,
     recursive: bool,
     custom_pattern: str | None,
     split_fields: tuple[int, int] | None,
     split_delim: str,
+    sample_per_dir: bool = False,
 ) -> list[dict[str, str]]:
     """Scan directory and return list of row dicts for samples.tsv."""
+    if sample_per_dir:
+        recursive = True  # sample-per-dir layouts keep FASTQs in subdirectories
+
     r1_files = find_r1_files(directory, recursive)
+    if not r1_files and not recursive:
+        print("[make_samples_tsv] No FASTQ at top level — retrying recursively...")
+        recursive = True
+        r1_files = find_r1_files(directory, recursive)
     if not r1_files:
         raise RuntimeError(f"No R1 FASTQ files found in '{directory}'.")
 
     # Show detected pattern
-    if custom_pattern:
+    if sample_per_dir:
+        print("[make_samples_tsv] Mode: sample-per-directory (parent dir = sample_id)")
+    elif custom_pattern:
         print(f"[make_samples_tsv] Using custom pattern: {custom_pattern}")
     elif split_fields:
         print(
@@ -270,12 +307,15 @@ def build_table(
             missing_r2.append(r1)
             continue
 
-        sample_id, rg = extract_sample_rg(
-            r1,
-            custom_pattern=custom_pattern,
-            split_fields=split_fields,
-            split_delim=split_delim,
-        )
+        if sample_per_dir:
+            sample_id, rg = _sample_per_dir_ids(r1)
+        else:
+            sample_id, rg = extract_sample_rg(
+                r1,
+                custom_pattern=custom_pattern,
+                split_fields=split_fields,
+                split_delim=split_delim,
+            )
         rows.append(
             {
                 "sample_id": sample_id,
@@ -421,6 +461,15 @@ def main() -> None:
         help="Scan subdirectories recursively.",
     )
     parser.add_argument(
+        "--sample-per-dir",
+        action="store_true",
+        dest="sample_per_dir",
+        help=(
+            "Treat each subdirectory as one sample (parent dir = sample_id); "
+            "files within become readgroups. Implies --recursive."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         "-n",
         action="store_true",
@@ -457,6 +506,7 @@ def main() -> None:
             custom_pattern=args.pattern,
             split_fields=split_fields,
             split_delim=args.delim,
+            sample_per_dir=args.sample_per_dir,
         )
     except (ValueError, RuntimeError) as e:
         print(f"ERROR: {e}", file=sys.stderr)

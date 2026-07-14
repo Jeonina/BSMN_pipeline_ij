@@ -95,7 +95,15 @@ sample_id    bam
 AN02255      /data/AN02255.cram
 ```
 
-`run.py` can generate `samples.tsv` for you from a FASTQ directory.
+`run.py` can generate `samples.tsv` for you from a FASTQ directory. For cohorts
+laid out as **one directory per sample** (each dir holding one or more readgroup
+FASTQ pairs), add `--sample-per-dir`: the parent directory becomes `sample_id`,
+the files within become readgroups, and demux leftovers (`undecoded` /
+`Undetermined`) are excluded automatically. Example:
+
+```bash
+python run.py /data/cohort/ --sample-per-dir --stage mapping --cores 150
+```
 
 ---
 
