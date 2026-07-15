@@ -31,11 +31,14 @@ known_sites:
   indels:  "resources/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz"
 
 # -- Mapping parameters -------------------------------------------------------
-# NOTE: thread/memory values below are AUTO-RESOLVED at runtime by
-# scripts/auto_params.py (RESOLVED.*) and are NOT read from this file — editing
-# them has no effect; output_format is fixed to cram by the rules. Kept for ref.
+# bwa_threads sets threads PER bwa_mem_sort job, which controls how many
+# readgroups map in parallel:  concurrency = (--cores) // bwa_threads.
+# bwa scales well to ~24-32 threads, so a moderate value parallelizes far
+# better than one huge job (e.g. --cores 168, bwa_threads 24 -> 7 readgroups
+# at once). Watch RAM: ~12-16 GB per concurrent job.
+# sort_threads / sort_memory / markdup_memory are auto-resolved by auto_params.
 mapping:
-  bwa_threads: 16
+  bwa_threads: 24                # per-job threads -> parallelism = --cores // this
   sort_threads: 4
   sort_memory: "4GB"             # per-thread memory for sambamba sort
   markdup_memory: "16G"

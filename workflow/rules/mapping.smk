@@ -66,9 +66,9 @@ rule bwa_mem_sort:
         sambamba_sif=CONTAINERS["sambamba"]["sif"],
     log:
         "logs/mapping/{sample}/bwa_mem_sort.{rg}.log",
-    threads: max(4, workflow.cores // 2)
+    threads: min(config["mapping"].get("bwa_threads", 24), workflow.cores)
     resources:
-        mem_mb=lambda wildcards, threads: threads * 3000,
+        mem_mb=16000,
         runtime=1440,
     shell:
         """
