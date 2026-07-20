@@ -49,7 +49,10 @@ def build_fastq_index(data_root: str) -> dict[tuple[str, str], str]:
                 continue
         except OSError:
             continue
-        m = re.search(r"(E\d+)_L01_(UDB-\d+)_1\.fq\.gz$", os.path.basename(p))
+        # re.match (not search) anchors at the start of the basename, so macOS
+        # AppleDouble junk like "._E250...UDB-438_1.fq.gz" (which starts with
+        # ".") is excluded — it must not poison a readgroup with a 4 KB stub.
+        m = re.match(r"(E\d+)_L01_(UDB-\d+)_1\.fq\.gz$", os.path.basename(p))
         if m:
             index[(m.group(1), m.group(2))] = p
     return index
