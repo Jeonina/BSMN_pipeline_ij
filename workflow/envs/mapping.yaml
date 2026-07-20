@@ -1,0 +1,11 @@
+name: bsmn-mapping
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - bwa=0.7.17
+  - sambamba=0.8.2
+  - samtools=1.17
+  - picard=3.1.1
+  - gatk4=4.4.0.0

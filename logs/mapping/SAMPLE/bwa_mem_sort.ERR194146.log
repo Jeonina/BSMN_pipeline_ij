@@ -1,0 +1,30 @@
+
+sambamba 0.8.2
+ by Artem Tarasov and Pjotr Prins (C) 2012-2021
+    LDC 1.28.1 / DMD v2.098.1 / LLVM12.0.0 / bootstrap LDC - the LLVM D compiler (1.28.1)
+
+
+sambamba 0.8.2
+ by Artem Tarasov and Pjotr Prins (C) 2012-2021
+    LDC 1.28.1 / DMD v2.098.1 / LLVM12.0.0 / bootstrap LDC - the LLVM D compiler (1.28.1)
+
+[M::bwa_idx_load_from_disk] read 0 ALT contigs
+[M::process] read 322172 sequences (32539372 bp)...
+[M::mem_pestat] # candidate unique pairs for (FF, FR, RF, RR): (11, 32855, 0, 0)
+[M::mem_pestat] analyzing insert size distribution for orientation FF...
+[M::mem_pestat] (25, 50, 75) percentile: (191, 213, 262)
+[M::mem_pestat] low and high boundaries for computing mean and std.dev: (49, 404)
+[M::mem_pestat] mean and std.dev: (213.82, 82.01)
+[M::mem_pestat] low and high boundaries for proper pairs: (1, 542)
+[M::mem_pestat] analyzing insert size distribution for orientation FR...
+[M::mem_pestat] (25, 50, 75) percentile: (258, 301, 349)
+[M::mem_pestat] low and high boundaries for computing mean and std.dev: (76, 531)
+[M::mem_pestat] mean and std.dev: (303.09, 71.86)
+[M::mem_pestat] low and high boundaries for proper pairs: (1, 622)
+[M::mem_pestat] skip orientation RF as there are not enough pairs
+[M::mem_pestat] skip orientation RR as there are not enough pairs
+[M::mem_pestat] skip orientation FF
+[M::mem_process_seqs] Processed 322172 reads in 46.003 CPU sec, 1.208 real sec
+[main] Version: 0.7.17-r1188
+[main] CMD: /bwa/bwa-0.7.17/bwa mem -M -t 40 -R @RG\tID:SAMPLE.ERR194146\tSM:SAMPLE\tPL:illumina\tLB:SAMPLE\tPU:ERR194146 resources/hg38/Homo_sapiens_assembly38.fasta /home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/tests/data/sample_R1.fastq.gz /home/koon0324/BSMN_pipeline/BSMN_pipeline_ij/tests/data/sample_R2.fastq.gz
+[main] Real time: 5.813 sec; CPU: 48.889 sec

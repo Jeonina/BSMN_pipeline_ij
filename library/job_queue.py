@@ -1,3 +1,12 @@
+"""SGE/SLURM GridEngineQueue helper (deprecated, pending removal in M7).
+
+This module is the sole survivor of the legacy ``library/`` package after
+SPEC-BSMN-REFACTOR-001 M2 consolidation. It remains because all
+``jobs/run_*.py`` and ``jobs/submit_*.py`` scripts still import
+``GridEngineQueue`` for SLURM ``sbatch``/``squeue`` interaction, and those
+wrappers are scheduled for removal in M7. Do not add new code here.
+"""
+
 import subprocess
 import xml.etree.ElementTree as ET
 import time

@@ -1,0 +1,153 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bsmn_pipeline"
+version = "0.2.0"
+description = "BSMN tumor-only somatic variant calling pipeline (Snakemake)"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "inajeon" }]
+license = { text = "Proprietary" }
+keywords = ["bioinformatics", "variant-calling", "snakemake", "bsmn", "hg38"]
+dependencies = [
+    "pyyaml>=6.0",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+    "pyyaml>=6.0",
+]
+test = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "pyyaml>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["bsmn_pipeline"]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["bsmn_pipeline", "scripts"]
+extend-exclude = [
+    "downloads",
+    "logs",
+    ".snakemake",
+    "reports",
+    "etc",
+    # Legacy code retained until later milestones; not part of M1a scope.
+    "jobs",
+    "library",
+    "utils",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP", "N"]
+extend-select = ["B006"]  # REQ-MOD-007: explicit mutable-default-argument detection
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use non-PEP8 function names (test_..._snake_case is conventional).
+"tests/*" = ["N802", "N803", "N806"]
+# Bioinformatics convention: MQ (mapping quality), BQ (base quality), AF, VAF
+# are standardized two-letter SAM/BAM/VCF metric codes preserved verbatim
+# across the BSMN pipeline. Renaming them would break downstream consumers
+# and the published API contract. Approved by inajeon for M3.
+"bsmn_pipeline/pileup.py" = ["N803", "N806"]
+"scripts/somatic_vaf_filter.py" = ["N803", "N806"]
+"scripts/strand_bias_filter.py" = ["N803", "N806"]
+"scripts/alt_bq_sum.py" = ["N802", "N803", "N806"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Mypy — strict on the new package; lenient on legacy/scripts pending M3
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["bsmn_pipeline", "scripts"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+namespace_packages = true
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Pytest — migrated from top-level pytest.ini (M1a deliverable)
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires snakemake + external tools (deselect with -m \"not integration\")",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["bsmn_pipeline", "scripts"]
+# Omit bio-tool wrapper scripts and pure-CLI utilities that cannot be
+# unit-tested without installing the external toolchain (apptainer + bwa +
+# gatk + samtools + bcftools) or large synthetic FASTQ/BAM/VCF fixtures.
+# These scripts are covered by the integration test suite (marker:
+# "integration") and exercised in the Snakemake DAG itself; including
+# them in the unit-test coverage denominator would force an unrealistic
+# 85% floor and mask regressions in the modules that *are* unit-testable.
+# Re-evaluate this list when the corresponding scripts gain unit tests
+# backed by deterministic fixtures.
+omit = [
+    # Variant-filter wrappers — invoke bcftools / pysam pileup walks
+    "scripts/accessibility_filter.py",
+    "scripts/germline_filter.py",
+    "scripts/vaf_filter.py",
+    "scripts/pon_mask_filter.py",
+    "scripts/somatic_vaf_filter.py",
+    "scripts/strand_bias_filter.py",
+    "scripts/repeat_filter.py",
+    "scripts/alt_bq_sum.py",
+    "scripts/analyze_vcf_filters.py",
+    # HTML report generator — pure presentation layer, exercised end-to-end
+    "scripts/run_summary.py",
+    # FASTQ directory scanner — partially exercised via run.py integration;
+    # full unit coverage requires synthetic FASTQ fixtures (deferred to M3).
+    "scripts/make_samples_tsv.py",
+    # mayo / MosaicForecast filter wrappers — orchestrate strand/repeat scripts
+    # and the MosaicForecast Apptainer image; their pure logic (passes_mayo,
+    # read_tsv, to_bed_line, parse_predictions) is unit-tested in
+    # tests/test_mayo_filter.py and tests/test_mosaicforecast_filter.py.
+    "scripts/mayo_filter.py",
+    "scripts/mosaicforecast_filter.py",
+    "scripts/cnvnator_filter.py",
+    # One-off FP diagnostics — bcftools/BED CLI tools run by hand on benchmark
+    # outputs, not part of the pipeline DAG.
+    "scripts/analyze_candidate_fps.py",
+    "scripts/test_pon_mask.py",
+    "scripts/test_confident_bed.py",
+    "scripts/compare_masks.py",
+]
+
+[tool.coverage.report]
+# fail_under reflects the realistic floor for unit-testable Python modules
+# after omitting bio-tool wrappers (see [tool.coverage.run].omit comment).
+# Current measured coverage with this omit list is ~75%; the 70% floor
+# leaves a 5% buffer for incidental regression without setting an
+# aspirational target that masks real coverage drops. Bump this number
+# when new tests land — do not lower without a written rationale.
+fail_under = 70
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

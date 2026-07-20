@@ -1,0 +1,60 @@
+# =============================================================================
+# Container specifications for BSMN mapping pipeline
+# All tools run via Apptainer (Singularity-compatible).
+# SIF files are stored under containers/ and auto-pulled if absent.
+# =============================================================================
+
+bwa:
+  name: bwa
+  version: v0.7.17
+  uri: docker://staphb/bwa:0.7.17
+  sif: containers/bwa_0.7.17.sif
+
+sambamba:
+  name: sambamba
+  version: v0.8.2
+  uri: docker://quay.io/biocontainers/sambamba:0.8.2--h98b6b92_2
+  sif: containers/sambamba_0.8.2.sif
+
+picard:
+  name: picard
+  version: v3.1.1
+  uri: docker://broadinstitute/picard:3.1.1
+  sif: containers/picard_3.1.1.sif
+  jar: /usr/picard/picard.jar
+
+gatk:
+  name: gatk
+  version: v4.4.0.0
+  uri: docker://broadinstitute/gatk:4.4.0.0
+  sif: containers/gatk_4.4.0.0.sif
+
+samtools:
+  name: samtools
+  version: v1.17
+  uri: docker://staphb/samtools:1.17
+  sif: containers/samtools_1.17.sif
+
+bcftools:
+  name: bcftools
+  version: v1.17
+  uri: docker://staphb/bcftools:1.17
+  sif: containers/bcftools_1.17.sif
+
+# MosaicForecast: ships the feature-extraction/prediction scripts and the
+# k24.umap.wg.bw mappability track inside the image (/usr/local/bin). The
+# trained RF models are NOT in the image — clone them to
+# resources/MosaicForecast/models_trained/ (see filtering.mosaicforecast.model).
+mosaicforecast:
+  name: mosaicforecast
+  version: v0.0.1
+  uri: docker://yanmei/mosaicforecast:0.0.1
+  sif: containers/mosaicforecast.sif
+
+# CNVnator (ROOT-based read-depth CNV genotyping). v0.4.1 supports a single
+# reference via `-his ... -fasta` (no per-chromosome split needed).
+cnvnator:
+  name: cnvnator
+  version: v0.4.1
+  uri: docker://quay.io/biocontainers/cnvnator:0.4.1--py313h3ef7bf5_12
+  sif: containers/cnvnator.sif

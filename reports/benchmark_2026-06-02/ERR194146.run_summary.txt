@@ -1,0 +1,20 @@
+======================================================================
+Pipeline Run Summary  —  sample: ERR194146
+======================================================================
+Step                    Elapsed  Details
+----------------------------------------------------------------------
+  bwa_map                     —  (log not found)
+  mark_dup                    —  (log not found)
+  mutect2_scatter          3.3h  
+  learn_orientation        6.2m  
+  get_pileup               4.6h  
+  calc_contamination       3.6s  contamination=0.0017
+  merge_vcfs              42.6s  
+  filter_mutect           31.6m  total_called=18,295,152
+  accessibility           18.2s  47,508 → 21,695 (45.7%)
+  germline                  N/A  kept=21,418
+  vaf                     22.7m  21,418 → 300 (1.4%)  low_alt=1,050 high_p=20,068 no_cov=0
+  pon_mask                 4.7s  kept=291
+----------------------------------------------------------------------
+  TOTAL                    9.0h
+======================================================================

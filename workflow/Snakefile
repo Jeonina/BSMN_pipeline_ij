@@ -1,0 +1,122 @@
+# =============================================================================
+# BSMN Somatic Variant Calling Pipeline
+#
+# Usage:
+#   # (one-time) download reference + known-sites:
+#   bash scripts/download_and_index_hg38.sh resources/hg38/
+#
+#   # (one-time) pull container SIF files:
+#   python scripts/prepare_containers.py config/containers.yaml
+#
+#   # run mapping only:
+#   snakemake --config stage=mapping --cores 16
+#
+#   # run through calling:
+#   snakemake --config stage=calling --cores 16
+#
+#   # run through filtering (full pipeline):
+#   snakemake --config stage=filtering --cores 16
+#
+# resolved_params.yaml is auto-generated from config/samples.tsv if absent.
+# =============================================================================
+
+import csv
+import os
+import subprocess
+import sys
+
+# ---------------------------------------------------------------------------
+# Step 0: Auto-generate resolved_params.yaml from samples.tsv if not present.
+# Must happen before common.smk is included (RESOLVED is needed at parse time).
+# ---------------------------------------------------------------------------
+_resolved = "config/resolved_params.yaml"
+if not os.path.exists(_resolved):
+    _samples_tsv = "config/samples.tsv"
+    if not os.path.exists(_samples_tsv):
+        raise WorkflowError(
+            f"'{_samples_tsv}' not found.\n"
+            "Create samples.tsv with one of these schemas:\n"
+            "  fastq : sample_id, readgroup, fq1, fq2\n"
+            "  bam   : sample_id, bam   (bam value may be a .bam or .cram path)"
+        )
+    _scripts_dir = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(_scripts_dir, "auto_params.py"),
+            "--samples", _samples_tsv,
+            "--output", _resolved,
+        ],
+        check=True,
+    )
+
+# ---------------------------------------------------------------------------
+# Load shared helpers, config, and container/parameter dicts
+# ---------------------------------------------------------------------------
+
+include: "common.smk"
+
+
+# ---------------------------------------------------------------------------
+# Target rules  (stage-aware)
+# ---------------------------------------------------------------------------
+
+def _all_targets():
+    stage = config.get("stage", "all")
+    targets = []
+    if stage in ("mapping", "all"):
+        targets += expand("results/mapping/{sample}/{sample}.cram", sample=SAMPLES)
+        targets += expand("results/mapping/{sample}/flagstat.txt", sample=SAMPLES)
+    if stage in ("calling", "all"):
+        targets += expand(
+            "results/calling/{sample}/{sample}.filtered.vcf.gz", sample=SAMPLES
+        )
+    if stage in ("filtering", "all"):
+        targets += expand(
+            "results/filtering/{sample}/{sample}.final.txt", sample=SAMPLES
+        )
+    return targets
+
+
+rule all:
+    input: _all_targets()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline stages
+#
+# The first-stage rules file is selected by SCHEMA (from common.smk) so that
+# only ONE rule produces the calling input anchor
+# `results/mapping/{sample}/{sample}.cram`:
+#   * fastq schema → rules/mapping.smk  (FASTQ → CRAM mapping pipeline)
+#   * bam schema   → rules/ingest.smk   (external alignment → CRAM normalize)
+# This avoids an AmbiguousRuleException between apply_bqsr and ingest_alignment.
+# ---------------------------------------------------------------------------
+
+if SCHEMA == "bam":
+    include: "rules/ingest.smk"
+else:
+    include: "rules/mapping.smk"
+
+include: "rules/calling.smk"
+include: "rules/filtering.smk"
+
+
+# ---------------------------------------------------------------------------
+# Post-pipeline summary
+# ---------------------------------------------------------------------------
+
+onsuccess:
+    import subprocess, sys
+    _scripts = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
+    )
+    for sample in SAMPLES:
+        print(f"\n[run_summary] Generating summary for sample: {sample}")
+        subprocess.run(
+            [sys.executable, os.path.join(_scripts, "run_summary.py"),
+             "--sample", sample, "--log-dir", "logs"],
+            check=False,
+        )

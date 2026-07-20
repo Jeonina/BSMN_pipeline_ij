@@ -10,7 +10,7 @@ pipe_home = os.path.normpath(cmd_home + "/..")
 job_home = cmd_home + "/variant_calling"
 sys.path.append(pipe_home)
 
-from library.config import log_dir, save_hold_jid
+from bsmn_pipeline.config import log_dir, save_hold_jid
 from library.job_queue import GridEngineQueue
 q = GridEngineQueue()
 
