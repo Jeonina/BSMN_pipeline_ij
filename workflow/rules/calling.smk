@@ -29,6 +29,14 @@ _gatk_mem_gb = RESOLVED.get("gatk_memory_gb", 8)
 _bqsr_mem_gb = RESOLVED.get("bqsr_memory_gb", 16)
 _n_chroms = max(1, len(CHROMOSOMES))
 
+# Cores per Mutect2 scatter job.  Mutect2's only parallel section is the
+# PairHMM, and it stays single-threaded unless --native-pair-hmm-threads is
+# passed.  Reserving cores/n_chroms without that flag (the previous behaviour)
+# just idled the reservation, so the count is now explicit and forwarded to
+# GATK.  PairHMM scaling flattens past ~4 threads; more cores are better spent
+# on additional concurrent chromosomes.
+_mutect2_threads = max(1, int(_calling.get("mutect2_threads", 4)))
+
 
 rule mutect2_scatter:
     """
@@ -61,9 +69,9 @@ rule mutect2_scatter:
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
         "logs/calling/{sample}/mutect2_scatter.{chrom}.log",
-    threads: max(2, workflow.cores // _n_chroms)
+    threads: min(_mutect2_threads, workflow.cores)
     resources:
-        mem_mb=lambda wildcards: _bqsr_mem_gb * 1024,
+        mem_mb=lambda wildcards: _bqsr_mem_gb * 1024 + 1024,
         runtime=2880,
     shell:
         """
@@ -92,6 +100,7 @@ rule mutect2_scatter:
             {params.germline_flag} \
             {params.pon_flag} \
             -L {wildcards.chrom} \
+            --native-pair-hmm-threads {threads} \
             --f1r2-tar-gz {output.f1r2} \
             -O {output.vcf} \
             {params.extra}

@@ -2,9 +2,10 @@
 test_auto_params.py — Unit tests for scripts/auto_params.py
 
 Coverage targets:
-    get_sort_memory()          — 30% of available RAM, min 512 MB, max 8 GB
-    get_bqsr_memory_gb()       — half of total RAM, min 4 GB, max 64 GB
-    get_markdup_memory_gb()    — quarter of total RAM, min 2 GB, max 32 GB
+    get_sort_memory()          — fixed 8 GB buffer, clamped to RAM/4
+    get_bqsr_memory_gb()       — fixed 8 GB heap, clamped to RAM/4, floor 4 GB
+    get_markdup_memory_gb()    — fixed 16 GB heap, clamped to RAM/4, floor 4 GB
+    get_gatk_memory_gb()       — fixed 8 GB heap, clamped to RAM/4, floor 4 GB
     get_bwa_threads()          — cpu_count, capped at 4 on low-memory systems
     detect_sequencer()         — instrument ID pattern matching
     get_optical_duplicate_pixel_distance() — patterned vs unpatterned flowcell
@@ -17,6 +18,7 @@ from scripts.auto_params import (
     detect_sequencer,
     get_bqsr_memory_gb,
     get_bwa_threads,
+    get_gatk_memory_gb,
     get_markdup_memory_gb,
     get_optical_duplicate_pixel_distance,
     get_sort_memory,
@@ -35,113 +37,129 @@ def _mem(total_gb: int, avail_gb: int) -> MagicMock:
     return m
 
 
+def _resolve_with_ram(resolver, total_gb: int):
+    """Call ``resolver()`` on a host mocked to have ``total_gb`` of total RAM."""
+    with patch(
+        "scripts.auto_params.psutil.virtual_memory",
+        return_value=_mem(total_gb, total_gb * 3 // 4),
+    ):
+        return resolver()
+
+
 # ---------------------------------------------------------------------------
 # get_sort_memory
 # ---------------------------------------------------------------------------
 
 
 class TestGetSortMemory:
-    """sambamba sort memory: 30% of available RAM, min 512 MB, max 8 GB."""
+    """sambamba sort buffer: fixed 8 GB, clamped to a quarter of total RAM."""
 
-    def test_normal_memory_returns_30_percent(self):
-        # 16 GB available → 30% = 4915 MB (within [512, 8192])
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(32, 16)):
-            result = get_sort_memory()
-        assert result == "4915MB"
+    def test_ample_ram_returns_fixed_buffer(self):
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 60)):
+            assert get_sort_memory() == "8GB"
 
-    def test_low_memory_returns_minimum_512mb(self):
-        # 1 GB available → 30% = 307 MB → floored to 512 MB
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(4, 1)):
-            result = get_sort_memory()
-        assert result == "512MB"
+    def test_small_host_clamped_to_quarter_of_total(self):
+        # 16 GB total → quarter = 4 GB, below the 8 GB default
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(16, 12)):
+            assert get_sort_memory() == "4GB"
 
-    def test_high_memory_server_capped_at_8gb(self):
-        # 500 GB available → 30% = 153600 MB → must be capped at 8192 MB
-        # This was the production bug: server had 512 GB RAM → 152 GB sort memory
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(512, 500)):
-            result = get_sort_memory()
-        assert result == "8192MB", (
-            f"Expected '8192MB' but got '{result}'. "
-            "get_sort_memory() must cap at 8 GB regardless of available RAM."
-        )
+    def test_tiny_host_floored_at_2gb(self):
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(4, 3)):
+            assert get_sort_memory() == "2GB"
 
-    def test_psutil_failure_returns_fallback(self):
+    def test_psutil_failure_returns_default(self):
         with patch("scripts.auto_params.psutil.virtual_memory", side_effect=RuntimeError):
-            result = get_sort_memory()
-        assert result == "6GB"
+            assert get_sort_memory() == "8GB"
 
-    def test_boundary_exactly_at_cap(self):
-        # Exactly 8 GB / 0.30 ≈ 27307 MB available → 30% = 8192 MB (at cap)
-        avail_mb = 8192
-        avail_gb_approx = avail_mb // 1024  # 8 GB
-        with patch(
-            "scripts.auto_params.psutil.virtual_memory",
-            return_value=_mem(16, avail_gb_approx),
-        ):
-            result = get_sort_memory()
-        mb = int(result.rstrip("MB"))
-        assert mb <= 8192
+    def test_independent_of_available_ram(self):
+        """Two hosts with identical total RAM must resolve identically.
+
+        The buffer used to be 30% of *available* RAM, which made the resolved
+        parameters depend on whatever else happened to be running at resolve
+        time — the same cohort could sort with different buffers on re-run.
+        """
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 90)):
+            idle_host = get_sort_memory()
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 3)):
+            busy_host = get_sort_memory()
+        assert idle_host == busy_host
 
 
 # ---------------------------------------------------------------------------
-# get_bqsr_memory_gb
+# get_bqsr_memory_gb / get_gatk_memory_gb / get_markdup_memory_gb
+#
+# These feed each rule's `resources.mem_mb`, which Snakemake treats as an
+# admission-control budget (concurrency = --resources mem_mb // per-job mem_mb).
+# They must therefore stay FLAT as total RAM grows: a bigger host has to buy
+# more concurrent jobs, not a bigger heap per job.
 # ---------------------------------------------------------------------------
 
 
 class TestGetBqsrMemoryGb:
-    """GATK BQSR heap: half of total RAM, min 4 GB, max 64 GB."""
+    """GATK streaming-walker heap: fixed 8 GB, clamped to RAM/4, floor 4 GB."""
 
     def test_normal_system(self):
-        # 32 GB total → half = 16 GB
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(32, 24)):
-            assert get_bqsr_memory_gb() == 16
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 60)):
+            assert get_bqsr_memory_gb() == 8
 
     def test_low_memory_returns_minimum_4gb(self):
-        # 4 GB total → half = 2 → floored to 4
         with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(4, 3)):
             assert get_bqsr_memory_gb() == 4
 
-    def test_high_memory_capped_at_64gb(self):
-        # 512 GB total → half = 256 → capped at 64
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(512, 400)):
-            assert get_bqsr_memory_gb() == 64
-
-    def test_psutil_failure_returns_fallback(self):
+    def test_psutil_failure_returns_default(self):
         with patch("scripts.auto_params.psutil.virtual_memory", side_effect=RuntimeError):
-            assert get_bqsr_memory_gb() == 16
+            assert get_bqsr_memory_gb() == 8
 
-    def test_boundary_128gb_total(self):
-        # 128 GB → half = 64 → exactly at cap
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(128, 100)):
-            assert get_bqsr_memory_gb() == 64
+    def test_does_not_grow_with_total_ram(self):
+        """Regression: heap scaled to total RAM starved the scatter rules.
+
+        On the 180-core/98 GB host, `total_gb // 2` produced a 49 GB
+        reservation against ~13 GB actual RSS, so `mutect2_scatter` and
+        `apply_bqsr` ran ONE job at a time under `--resources mem_mb=90000`
+        and 177 of 180 cores sat idle.
+        """
+        sizes = {gb: _resolve_with_ram(get_bqsr_memory_gb, gb) for gb in (64, 98, 128, 512)}
+        assert len(set(sizes.values())) == 1, (
+            f"heap must not scale with total RAM, got {sizes}"
+        )
 
 
-# ---------------------------------------------------------------------------
-# get_markdup_memory_gb
-# ---------------------------------------------------------------------------
+class TestGetGatkMemoryGb:
+    """General GATK-tool heap: same fixed 8 GB contract as the BQSR heap."""
+
+    def test_normal_system(self):
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 60)):
+            assert get_gatk_memory_gb() == 8
+
+    def test_does_not_grow_with_total_ram(self):
+        sizes = {gb: _resolve_with_ram(get_gatk_memory_gb, gb) for gb in (32, 98, 512)}
+        assert len(set(sizes.values())) == 1, f"got {sizes}"
 
 
 class TestGetMarkdupMemoryGb:
-    """Picard MarkDuplicates heap: quarter of total RAM, min 2 GB, max 32 GB."""
+    """MarkDuplicates heap: fixed 16 GB, clamped to RAM/4, floor 4 GB."""
 
     def test_normal_system(self):
-        # 32 GB total → quarter = 8 GB
+        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(98, 60)):
+            assert get_markdup_memory_gb() == 16
+
+    def test_small_host_clamped_to_quarter_of_total(self):
+        # 32 GB total → quarter = 8 GB, below the 16 GB default
         with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(32, 24)):
             assert get_markdup_memory_gb() == 8
 
-    def test_low_memory_returns_minimum_2gb(self):
-        # 4 GB total → quarter = 1 → floored to 2
+    def test_low_memory_returns_minimum_4gb(self):
         with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(4, 3)):
-            assert get_markdup_memory_gb() == 2
+            assert get_markdup_memory_gb() == 4
 
-    def test_high_memory_capped_at_32gb(self):
-        # 512 GB total → quarter = 128 → capped at 32
-        with patch("scripts.auto_params.psutil.virtual_memory", return_value=_mem(512, 400)):
-            assert get_markdup_memory_gb() == 32
-
-    def test_psutil_failure_returns_fallback(self):
+    def test_psutil_failure_returns_default(self):
         with patch("scripts.auto_params.psutil.virtual_memory", side_effect=RuntimeError):
-            assert get_markdup_memory_gb() == 8
+            assert get_markdup_memory_gb() == 16
+
+    def test_does_not_grow_with_total_ram(self):
+        # 64 GB and up all clamp-free, so the value must be identical.
+        sizes = {gb: _resolve_with_ram(get_markdup_memory_gb, gb) for gb in (64, 98, 512)}
+        assert len(set(sizes.values())) == 1, f"got {sizes}"
 
 
 # ---------------------------------------------------------------------------

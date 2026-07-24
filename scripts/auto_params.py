@@ -178,47 +178,77 @@ def get_bwa_threads() -> int:
     return int(cpus)
 
 
-def get_sort_memory() -> str:
-    """Return sambamba sort memory: 30% of available RAM, min 512 MB, max 8 GB."""
+# ---------------------------------------------------------------------------
+# Per-job memory footprints
+#
+# @MX:NOTE: [AUTO] These are per-JOB working-set sizes, deliberately NOT scaled
+#           to total system RAM. Each value maps 1:1 onto a rule's
+#           `resources.mem_mb`, which Snakemake uses as an admission-control
+#           budget: concurrency = (--resources mem_mb) // (per-job mem_mb).
+#           Deriving them from total RAM therefore INVERTS the intended effect —
+#           a bigger machine reserved a bigger heap per job and ran FEWER jobs.
+#           Measured on a 180-core/98 GB host: total-RAM scaling produced 24-49 GB
+#           reservations against 13 GB actual RSS, pinning the per-chromosome
+#           scatter rules (base_recalibrator, mutect2) to 1-3 concurrent jobs and
+#           leaving 177 of 180 cores idle. More RAM must buy more CONCURRENCY,
+#           not a larger heap. Values below are the tools' real requirements.
+# @MX:REASON: fan_in >= 3 — read by mapping.smk, calling.smk, and filtering.smk
+#             via config/resolved_params.yaml.
+# ---------------------------------------------------------------------------
+
+# GATK streaming walkers (BaseRecalibrator, ApplyBQSR, Mutect2, pileups).
+# These stream over the alignment and hold a bounded window in memory.
+_GATK_HEAP_GB = 8
+
+# Picard/Spark MarkDuplicates keeps a read-name → position map for unpaired and
+# not-yet-mated reads, so it needs materially more than the streaming walkers.
+_MARKDUP_HEAP_GB = 16
+
+# sambamba sort in-memory buffer before spilling to disk (per bwa_mem_sort job).
+_SORT_MEMORY_GB = 8
+
+# Never let a single job's heap exceed this fraction of system RAM, so the
+# defaults degrade gracefully on small hosts (e.g. a 32 GB workstation).
+_MAX_HEAP_FRACTION = 4
+
+
+def _cap_to_system(heap_gb: int, floor_gb: int = 2) -> int:
+    """Clamp a per-job heap to ``1/_MAX_HEAP_FRACTION`` of total system RAM.
+
+    Returns ``heap_gb`` unchanged on hosts with ample RAM; shrinks it (never
+    below ``floor_gb``) on small hosts so a job is still schedulable.
+    """
     try:
-        avail_mb: int = psutil.virtual_memory().available >> 20
-        sort_mb = max(512, min(int(avail_mb * 0.30), 8192))
-        return f"{sort_mb}MB"
+        total_gb: int = psutil.virtual_memory().total >> 30
     except Exception:
-        return "6GB"
+        return heap_gb
+    return max(floor_gb, min(heap_gb, total_gb // _MAX_HEAP_FRACTION))
+
+
+def get_sort_memory() -> str:
+    """Return the sambamba sort buffer for one bwa_mem_sort job.
+
+    Fixed rather than a share of *available* RAM: the previous
+    30%-of-available rule made the resolved parameters depend on whatever else
+    happened to be running at resolve time, so two runs of the same cohort
+    could sort with different buffer sizes.
+    """
+    return f"{_cap_to_system(_SORT_MEMORY_GB)}GB"
 
 
 def get_bqsr_memory_gb() -> int:
-    """
-    Return recommended GATK BQSR Java heap in GB.
-    Capped at half total RAM, between 2 GB and 64 GB.
-    """
-    try:
-        total_gb: int = psutil.virtual_memory().total >> 30
-        return max(4, min(total_gb // 2, 64))
-    except Exception:
-        return 16
+    """Return the Java heap for GATK streaming walkers (BQSR, Mutect2)."""
+    return _cap_to_system(_GATK_HEAP_GB, floor_gb=4)
 
 
 def get_markdup_memory_gb() -> int:
-    """Return recommended Picard MarkDuplicates Java heap in GB."""
-    try:
-        total_gb: int = psutil.virtual_memory().total >> 30
-        return max(2, min(total_gb // 4, 32))
-    except Exception:
-        return 8
+    """Return the Java heap for MarkDuplicates (Picard or Spark)."""
+    return _cap_to_system(_MARKDUP_HEAP_GB, floor_gb=4)
 
 
 def get_gatk_memory_gb() -> int:
-    """Return recommended Java heap for general GATK tools (MergeVcfs, etc.).
-
-    Smaller than BQSR: 1/4 of total RAM, min 4 GB, max 32 GB.
-    """
-    try:
-        total_gb: int = psutil.virtual_memory().total >> 30
-        return max(4, min(total_gb // 4, 32))
-    except Exception:
-        return 8
+    """Return the Java heap for general GATK tools (MergeVcfs, gathers, etc.)."""
+    return _cap_to_system(_GATK_HEAP_GB, floor_gb=4)
 
 
 def get_total_memory_mb() -> int:

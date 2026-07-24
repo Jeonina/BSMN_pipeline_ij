@@ -1,0 +1,52 @@
+# =============================================================================
+# BSMN pipeline — overlay config for the 32-core storage host
+# =============================================================================
+# Snakemake merges this recursively over config/config.yaml, so only the keys
+# that differ from the production defaults appear here.
+#
+# Usage:
+#   snakemake --snakefile workflow/Snakefile \
+#             --configfile config/config.storage32.yaml \
+#             --config stage=mapping \
+#             --cores 32 --resources mem_mb=<0.9 * RAM_MB>
+#
+# Why a separate config
+# ---------------------
+# config/config.yaml is tuned for the 180-core/98 GB compute host, where
+# bwa_threads=24 yields 5 concurrent readgroups. On 32 cores the same value
+# gives ONE concurrent job and leaves the sort/merge stages serialised behind
+# it. Every knob below exists because core count — not the pipeline — changed.
+#
+# RAM assumption
+# --------------
+# The values below assume >= 48 GB. Check with `free -g` before the first run:
+#
+#   RAM >= 48 GB : use as-is (2 concurrent bwa jobs)
+#   RAM 24-48 GB : set bwa_threads: 32 and markdup_threads: 32
+#                  (1 concurrent job, all cores on it)
+#   RAM <  24 GB : this host is not a good fit for 100x WGS mapping
+#
+# scripts/auto_params.py already clamps every per-job Java heap to 1/4 of system
+# RAM, so an undersized host degrades to smaller heaps rather than OOM-ing — but
+# concurrency still has to be dialled back by hand here.
+# =============================================================================
+
+# -- Mapping ------------------------------------------------------------------
+mapping:
+  # 32 cores / 16 threads = 2 concurrent readgroups. bwa-mem's speedup is
+  # sublinear past ~16 threads, so two 16-thread jobs beat one 32-thread job as
+  # long as RAM holds both (~15 GB each: 5.5 GB hg38 index + 8 GB sort buffer).
+  bwa_threads: 16
+
+  # Picard MarkDuplicates is single-threaded and was measured at ~5 h/sample on
+  # the 180-core host. On 32 cores that serial stage dominates the whole run,
+  # so this host uses the Spark engine. Same duplicate-flagging algorithm;
+  # validate the flags against a Picard-produced BAM before trusting it for the
+  # cohort (see docs — compare flagstat + markduplicates_metrics.txt).
+  markdup_engine: "spark"
+  markdup_threads: 16
+
+# -- Calling ------------------------------------------------------------------
+calling:
+  # 8 concurrent chromosomes x 4 PairHMM threads = 32 cores.
+  mutect2_threads: 4

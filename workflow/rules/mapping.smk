@@ -19,6 +19,16 @@
 
 _MAPPING_SCRIPTS = os.path.abspath("scripts")
 
+_mapping_cfg = config.get("mapping", {})
+
+# MarkDuplicates engine.  "picard" is the BSMN-lineage default (single-threaded,
+# the path validated against HG002).  "spark" runs GATK MarkDuplicatesSpark in
+# local mode, which applies the same duplicate-flagging algorithm across
+# `markdup_threads` cores.  Opt in per host — Spark trades RAM and scratch space
+# for wall-clock, so it is not automatically the right choice everywhere.
+_MARKDUP_ENGINE = _mapping_cfg.get("markdup_engine", "picard")
+_MARKDUP_THREADS = int(_mapping_cfg.get("markdup_threads", 16))
+
 
 rule validate_fastq_pair:
     """
@@ -122,9 +132,16 @@ rule merge_bams:
 
 rule mark_duplicates:
     """
-    aln_3: Picard MarkDuplicates.
+    aln_3: MarkDuplicates via Picard (default) or GATK MarkDuplicatesSpark.
+
     OPTICAL_DUPLICATE_PIXEL_DISTANCE is auto-set per sequencer type
     (NovaSeq=2500, HiSeq=100) by scripts/auto_params.py.
+
+    Engine is selected by `mapping.markdup_engine`.  Picard is single-threaded
+    and is the wall-clock bottleneck on high-core hosts (measured: 5 h on one
+    core while 177 cores sat idle); Spark applies the same algorithm across
+    `mapping.markdup_threads` cores.  Both write the same `.markduped.bam` and
+    a Picard-named `.markduped.bai`, so downstream rules are engine-agnostic.
     """
     input:
         bam="results/mapping/{sample}/{sample}.merged.bam",
@@ -136,28 +153,52 @@ rule mark_duplicates:
         java_mem=RESOLVED["markdup_memory"],
         odpd=RESOLVED["optical_duplicate_pixel_distance"],
         tmpdir="results/mapping/{sample}/tmp",
+        engine=_MARKDUP_ENGINE,
         picard_sif=CONTAINERS["picard"]["sif"],
         picard_jar=CONTAINERS["picard"]["jar"],
+        gatk_sif=CONTAINERS["gatk"]["sif"],
+        samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
         "logs/mapping/{sample}/mark_duplicates.log",
-    threads: 1
+    threads: _MARKDUP_THREADS if _MARKDUP_ENGINE == "spark" else 1
     resources:
+        # Spark's off-heap buffers and shuffle structures live outside -Xmx,
+        # so the reservation carries a larger cushion than Picard's.
         mem_mb=lambda wildcards: (
-            int(str(RESOLVED["markdup_memory"]).rstrip("G")) * 1024 + 512
+            int(str(RESOLVED["markdup_memory"]).rstrip("G")) * 1024
+            + (4096 if _MARKDUP_ENGINE == "spark" else 512)
         ),
         runtime=1440,
     shell:
         """
         mkdir -p {params.tmpdir}
-        apptainer exec {params.picard_sif} \
-            java -Xmx{params.java_mem} -Djava.io.tmpdir={params.tmpdir} \
-            -jar {params.picard_jar} MarkDuplicates \
-            -I {input.bam} \
-            -O {output.bam} \
-            -METRICS_FILE {output.metrics} \
-            -OPTICAL_DUPLICATE_PIXEL_DISTANCE {params.odpd} \
-            -CREATE_INDEX true \
-            -TMP_DIR {params.tmpdir} 2> {log}
+        if [ "{params.engine}" = "spark" ]; then
+            # --create-output-bam-index writes "<out>.bam.bai"; downstream rules
+            # expect Picard's "<out>.bai", so index explicitly instead.
+            apptainer exec {params.gatk_sif} \
+                gatk --java-options "-Xmx{params.java_mem} -Djava.io.tmpdir={params.tmpdir}" \
+                MarkDuplicatesSpark \
+                -I {input.bam} \
+                -O {output.bam} \
+                -M {output.metrics} \
+                --optical-duplicate-pixel-distance {params.odpd} \
+                --create-output-bam-index false \
+                --tmp-dir {params.tmpdir} \
+                --spark-master local[{threads}] \
+                --conf spark.local.dir={params.tmpdir} > {log} 2>&1
+            apptainer exec {params.samtools_sif} \
+                samtools index -@ {threads} {output.bam} {output.bai} 2>> {log}
+        else
+            apptainer exec {params.picard_sif} \
+                java -Xmx{params.java_mem} -Djava.io.tmpdir={params.tmpdir} \
+                -jar {params.picard_jar} MarkDuplicates \
+                -I {input.bam} \
+                -O {output.bam} \
+                -METRICS_FILE {output.metrics} \
+                -OPTICAL_DUPLICATE_PIXEL_DISTANCE {params.odpd} \
+                -CREATE_INDEX true \
+                -TMP_DIR {params.tmpdir} 2> {log}
+        fi
         rm -rf {params.tmpdir}
         """
 

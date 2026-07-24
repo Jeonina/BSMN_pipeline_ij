@@ -40,9 +40,19 @@ known_sites:
 mapping:
   bwa_threads: 24                # per-job threads -> parallelism = --cores // this
   sort_threads: 4
-  sort_memory: "4GB"             # per-thread memory for sambamba sort
+  sort_memory: "4GB"             # sambamba sort buffer per bwa_mem_sort job
   markdup_memory: "16G"
   output_format: "cram"          # cram | bam
+
+  # MarkDuplicates engine:
+  #   picard — single-threaded, the BSMN-lineage path validated against HG002.
+  #   spark  — GATK MarkDuplicatesSpark in local mode; same duplicate-flagging
+  #            algorithm across markdup_threads cores, at the cost of extra RAM
+  #            and scratch space under results/mapping/{sample}/tmp.
+  # Keep "picard" here so the in-flight cohort is unaffected; opt into "spark"
+  # via a host-specific config (see config/config.storage32.yaml).
+  markdup_engine: "picard"
+  markdup_threads: 16            # only used when markdup_engine == "spark"
 
 # -- Mutect2 calling parameters -----------------------------------------------
 calling:
@@ -82,6 +92,11 @@ calling:
   pon:
     use: false
     vcf: ""                      # path to pre-built PON VCF
+
+  # Cores per Mutect2 scatter job, forwarded as --native-pair-hmm-threads.
+  # PairHMM is Mutect2's only parallel section and its scaling flattens past
+  # ~4 threads; spend surplus cores on more concurrent chromosomes instead.
+  mutect2_threads: 4
 
   # Extra GATK flags (appended verbatim)
   mutect2_extra: ""
