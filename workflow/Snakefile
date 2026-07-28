@@ -42,15 +42,18 @@ if not os.path.exists(_resolved):
     _scripts_dir = os.path.normpath(
         os.path.join(os.path.dirname(os.path.abspath(workflow.snakefile)), "..", "scripts")
     )
-    subprocess.run(
-        [
-            sys.executable,
-            os.path.join(_scripts_dir, "auto_params.py"),
-            "--samples", _samples_tsv,
-            "--output", _resolved,
-        ],
-        check=True,
-    )
+    _ap_cmd = [
+        sys.executable,
+        os.path.join(_scripts_dir, "auto_params.py"),
+        "--samples", _samples_tsv,
+        "--output", _resolved,
+    ]
+    # Tune the auto-generated params for the run's actual core budget when known,
+    # so per-job thread widths match --cores rather than the whole machine.
+    _cores = getattr(workflow, "cores", None)
+    if isinstance(_cores, int) and _cores > 0:
+        _ap_cmd += ["--cores", str(_cores)]
+    subprocess.run(_ap_cmd, check=True)
 
 # ---------------------------------------------------------------------------
 # Load shared helpers, config, and container/parameter dicts

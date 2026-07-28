@@ -38,7 +38,9 @@ known_sites:
 # at once). Watch RAM: ~12-16 GB per concurrent job.
 # sort_threads / sort_memory / markdup_memory are auto-resolved by auto_params.
 mapping:
-  bwa_threads: 24                # per-job threads -> parallelism = --cores // this
+  # 'auto' defers to the host-tuner (scripts/auto_params.py -> resolved_params.yaml);
+  # pin an int to override. See the concurrency note above for what the value means.
+  bwa_threads: auto              # per-job threads -> parallelism = --cores // this
   sort_threads: 4
   sort_memory: "4GB"             # sambamba sort buffer per bwa_mem_sort job
   markdup_memory: "16G"
@@ -49,10 +51,11 @@ mapping:
   #   spark  — GATK MarkDuplicatesSpark in local mode; same duplicate-flagging
   #            algorithm across markdup_threads cores, at the cost of extra RAM
   #            and scratch space under results/mapping/{sample}/tmp.
-  # Keep "picard" here so the in-flight cohort is unaffected; opt into "spark"
-  # via a host-specific config (see config/config.storage32.yaml).
-  markdup_engine: "picard"
-  markdup_threads: 16            # only used when markdup_engine == "spark"
+  # 'auto' selects spark on hosts with >= 8 cores (Spark scales linearly to ~16
+  # cores per GATK docs) and single-threaded picard below that; pin "picard" or
+  # "spark" to override (e.g. config/config.storage32.yaml pins "spark").
+  markdup_engine: auto
+  markdup_threads: auto          # 'auto' = min(16, cores); only used by the spark engine
 
 # -- Mutect2 calling parameters -----------------------------------------------
 calling:
@@ -96,7 +99,7 @@ calling:
   # Cores per Mutect2 scatter job, forwarded as --native-pair-hmm-threads.
   # PairHMM is Mutect2's only parallel section and its scaling flattens past
   # ~4 threads; spend surplus cores on more concurrent chromosomes instead.
-  mutect2_threads: 4
+  mutect2_threads: auto          # 'auto' = 4 (GATK default, PairHMM-only); pin an int to override
 
   # Extra GATK flags (appended verbatim)
   mutect2_extra: ""

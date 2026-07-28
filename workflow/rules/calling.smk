@@ -35,7 +35,7 @@ _n_chroms = max(1, len(CHROMOSOMES))
 # just idled the reservation, so the count is now explicit and forwarded to
 # GATK.  PairHMM scaling flattens past ~4 threads; more cores are better spent
 # on additional concurrent chromosomes.
-_mutect2_threads = max(1, int(_calling.get("mutect2_threads", 4)))
+_mutect2_threads = max(1, int(_auto(_calling.get("mutect2_threads"), "mutect2_threads", 4)))
 
 
 rule mutect2_scatter:

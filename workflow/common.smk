@@ -19,6 +19,19 @@ if not os.path.exists(_resolved_path):
 with open(_resolved_path) as _fh:
     RESOLVED = yaml.safe_load(_fh)
 
+
+# --- Auto-tuner knob resolver ------------------------------------------------
+# A rule reads its per-job thread/engine knobs through this: an explicit value in
+# config wins (a user pin), while the sentinel 'auto' (or an absent key) defers to
+# the host-tuned value in resolved_params.yaml (scripts/auto_params.py), then the
+# hard default. Keeps the published config self-tuning yet fully overridable.
+def _auto(cfg_value, resolved_key, default):
+    if cfg_value is None or (
+        isinstance(cfg_value, str) and cfg_value.strip().lower() == "auto"
+    ):
+        return RESOLVED.get(resolved_key, default)
+    return cfg_value
+
 # --- Container specs (config/containers.yaml) --------------------------------
 
 _containers_path = "config/containers.yaml"

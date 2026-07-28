@@ -26,8 +26,11 @@ _mapping_cfg = config.get("mapping", {})
 # local mode, which applies the same duplicate-flagging algorithm across
 # `markdup_threads` cores.  Opt in per host — Spark trades RAM and scratch space
 # for wall-clock, so it is not automatically the right choice everywhere.
-_MARKDUP_ENGINE = _mapping_cfg.get("markdup_engine", "picard")
-_MARKDUP_THREADS = int(_mapping_cfg.get("markdup_threads", 16))
+# Knobs resolve through _auto (common.smk): a config int/str pins the value;
+# 'auto' (or absent) defers to the host-tuner in resolved_params.yaml.
+_BWA_THREADS = int(_auto(_mapping_cfg.get("bwa_threads"), "bwa_threads", 24))
+_MARKDUP_ENGINE = str(_auto(_mapping_cfg.get("markdup_engine"), "markdup_engine", "picard"))
+_MARKDUP_THREADS = int(_auto(_mapping_cfg.get("markdup_threads"), "markdup_threads", 16))
 
 
 rule validate_fastq_pair:
@@ -76,7 +79,7 @@ rule bwa_mem_sort:
         sambamba_sif=CONTAINERS["sambamba"]["sif"],
     log:
         "logs/mapping/{sample}/bwa_mem_sort.{rg}.log",
-    threads: min(config["mapping"].get("bwa_threads", 24), workflow.cores)
+    threads: min(_BWA_THREADS, workflow.cores)
     resources:
         mem_mb=16000,
         runtime=1440,

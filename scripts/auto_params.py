@@ -260,37 +260,164 @@ def get_total_memory_mb() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Host-aware thread / engine derivation  (the auto-tuner)
+#
+# @MX:NOTE: [AUTO] These pick each job's WIDTH (thread count) and the
+#           MarkDuplicates engine from the host's core budget + RAM, so a run needs
+#           no hand-written per-host overlay (e.g. config.storage32.yaml). How MANY
+#           jobs run at once is still governed by the memory admission budget above
+#           (concurrency = --resources mem_mb // per-job mem_mb). Evidence tier per
+#           knob, verified against primary sources:
+#             [DOC]       markdup_threads ceiling 16 — MarkDuplicatesSpark scales
+#                         linearly only to ~16 cores (GATK Javadoc); mutect2 threads
+#                         default 4 and PairHMM-only (GATK source); BQSR takes no
+#                         thread knob (Broad WDL — parallelised by interval scatter).
+#             [HEURISTIC] bwa per-job width, the >=8-core spark cutoff, and budgeting
+#                         on the logical core count — no published optimum exists, so
+#                         these are labelled and overridable via config ('auto'
+#                         defers here; an int/str pins a value).
+# @MX:REASON: fan_in >= 3 — emitted into resolved_params.yaml and read by
+#             mapping.smk (bwa/markdup) and calling.smk (mutect2).
+# ---------------------------------------------------------------------------
+
+# [DOC] MarkDuplicatesSpark scales linearly only to ~16 cores — never exceed.
+_MARKDUP_SPARK_MAX_THREADS = 16
+# [HEURISTIC] Spark's parallel dedup earns its overhead once the host can feed it;
+# below this core count, single-threaded Picard is the simpler default.
+_SPARK_MIN_CORES = 8
+# [DOC] Mutect2 --native-pair-hmm-threads default; only the PairHMM is threaded, so
+# surplus cores are better spent on concurrent chromosomes than on this knob.
+_MUTECT2_PAIRHMM_THREADS = 4
+# [HEURISTIC] Preferred per-job bwa-mem width when cores are plentiful. bwa-mem has
+# no published thread optimum, so this only *targets* a moderate width and lets
+# extra cores buy more concurrent read-groups. Benchmark per host-class to confirm.
+_BWA_TARGET_THREADS = 12
+# One bwa_mem_sort job's working set: hg38 BWT index (~5.5 GB) + sort buffer
+# (~8 GB) + overhead. Bounds bwa concurrency by RAM so cores are not
+# oversubscribed against memory on RAM-poor / many-core hosts.
+_BWA_JOB_GB = 15
+
+
+def derive_bwa_threads(cores: int, ram_gb: int) -> int:
+    """Per-job bwa-mem thread count  ([HEURISTIC] — no published optimum).
+
+    Concurrency-aware: aim for ~``_BWA_TARGET_THREADS``-wide jobs, cap the number of
+    concurrent jobs by what RAM allows (~``_BWA_JOB_GB`` each), then give each job an
+    equal share of the cores. Small hosts collapse to one job using every core;
+    RAM-bound many-core hosts get fewer, wider jobs so cores are not left idle behind
+    a memory ceiling. Override via ``mapping.bwa_threads`` in config.
+    """
+    cores = max(1, int(cores))
+    ram_gb = max(1, int(ram_gb))
+    ram_concurrency = max(1, ram_gb // _BWA_JOB_GB)
+    core_concurrency = max(1, cores // _BWA_TARGET_THREADS)
+    concurrency = max(1, min(core_concurrency, ram_concurrency))
+    return max(1, cores // concurrency)
+
+
+def derive_markdup(cores: int) -> tuple[str, int]:
+    """(engine, threads) for MarkDuplicates.
+
+    Engine is Spark once the host has >= ``_SPARK_MIN_CORES`` ([HEURISTIC] cutoff),
+    else single-threaded Picard. Thread count is capped at 16 because
+    MarkDuplicatesSpark scales linearly only to ~16 cores ([DOC]); the value is
+    unused by the Picard engine.
+    """
+    cores = max(1, int(cores))
+    if cores >= _SPARK_MIN_CORES:
+        return "spark", min(_MARKDUP_SPARK_MAX_THREADS, cores)
+    return "picard", 1
+
+
+def derive_mutect2_threads(cores: int) -> int:
+    """--native-pair-hmm-threads  ([DOC] GATK default 4).
+
+    Only the PairHMM is threaded, so raising this barely moves wall-clock; surplus
+    cores go to concurrent chromosomes instead.
+    """
+    return min(_MUTECT2_PAIRHMM_THREADS, max(1, int(cores)))
+
+
+def get_logical_cpus() -> int:
+    """Logical CPU count (hyperthreads included) — the budget ``--cores`` schedules
+    against."""
+    return max(1, os.cpu_count() or 1)
+
+
+def get_physical_cpus() -> int:
+    """Physical core count; falls back to the logical count when undeterminable.
+    Reported for transparency; the tuner budgets on the logical count ([HEURISTIC]
+    — no bwa/GATK authority prescribes physical-vs-logical)."""
+    try:
+        n = psutil.cpu_count(logical=False)
+        return int(n) if n else get_logical_cpus()
+    except Exception:
+        return get_logical_cpus()
+
+
+def get_total_memory_gb() -> int:
+    """Return total system memory in GB (integer, floored)."""
+    try:
+        return int(psutil.virtual_memory().total >> 30)
+    except Exception:
+        return 16
+
+
+def _tuning_params(cores: int | None = None) -> dict[str, Any]:
+    """Host-derived resource + thread/engine knobs consumed by the workflow rules.
+
+    ``cores`` is the budget to tune per-job widths for (default: detected logical
+    CPUs) — pass the run's ``--cores`` to match the real budget. Keys read by rules:
+      * mapping.smk   : bwa_threads, sort_threads, sort_memory, markdup_engine,
+                        markdup_threads, markdup_memory, bqsr_memory_gb
+      * calling.smk   : mutect2_threads, gatk_memory_gb, bqsr_memory_gb
+      * filtering.smk : gatk_memory_gb
+    """
+    n_cores = int(cores) if cores else get_logical_cpus()
+    ram_gb = get_total_memory_gb()
+    bwa = derive_bwa_threads(n_cores, ram_gb)
+    markdup_engine, markdup_threads = derive_markdup(n_cores)
+    return {
+        "system_total_memory_mb": get_total_memory_mb(),
+        "system_cpus": get_logical_cpus(),
+        "system_physical_cpus": get_physical_cpus(),
+        "tuned_for_cores": n_cores,
+        "bwa_threads": bwa,
+        "sort_threads": min(4, bwa),
+        "sort_memory": get_sort_memory(),
+        "markdup_engine": markdup_engine,
+        "markdup_threads": markdup_threads,
+        "mutect2_threads": derive_mutect2_threads(n_cores),
+        "bqsr_memory_gb": get_bqsr_memory_gb(),
+        "markdup_memory": f"{get_markdup_memory_gb()}G",
+        "gatk_memory_gb": get_gatk_memory_gb(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main resolver
 # ---------------------------------------------------------------------------
 
 
-def resolve_params(fastq_path: str, output_yaml: str) -> dict[str, Any]:
+def resolve_params(
+    fastq_path: str, output_yaml: str, cores: int | None = None
+) -> dict[str, Any]:
     """
     Analyze FASTQ, determine all pipeline parameters, and write
     resolved_params.yaml.
 
+    ``cores`` tunes the per-job thread widths (default: detected logical CPUs).
     Returns the parameter dict (includes sequencer_evidence).
     """
     sequencer, evidence = _detect_sequencer_with_evidence(fastq_path)
-    bqsr_mem = get_bqsr_memory_gb()
-    markdup_mem = get_markdup_memory_gb()
-
-    gatk_mem = get_gatk_memory_gb()
 
     params: dict[str, Any] = {
         "resolved_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "input_fastq": os.path.abspath(fastq_path),
         "sequencer": sequencer,
         "sequencer_evidence": evidence,
-        "system_total_memory_mb": get_total_memory_mb(),
-        "system_cpus": max(1, os.cpu_count() or 1),
-        "bwa_threads": get_bwa_threads(),
-        "sort_threads": min(4, get_bwa_threads()),
-        "sort_memory": get_sort_memory(),
         "optical_duplicate_pixel_distance": get_optical_duplicate_pixel_distance(sequencer),
-        "bqsr_memory_gb": bqsr_mem,
-        "markdup_memory": f"{markdup_mem}G",
-        "gatk_memory_gb": gatk_mem,
+        **_tuning_params(cores),
     }
 
     out_dir = os.path.dirname(output_yaml)
@@ -302,36 +429,16 @@ def resolve_params(fastq_path: str, output_yaml: str) -> dict[str, Any]:
     return params
 
 
-def _resource_params() -> dict[str, Any]:
-    """Return the system-derived resource keys consumed by the workflow rules.
-
-    These are the keys the rules read from ``RESOLVED``:
-      * mapping.smk : ``bqsr_memory_gb`` (also ``bwa_threads``, ``sort_*``,
-        ``markdup_memory``) — only included in fastq-mode, but emitted always
-        so the file is schema-complete.
-      * calling.smk : ``gatk_memory_gb``, ``bqsr_memory_gb``
-      * filtering.smk : ``gatk_memory_gb``
-    """
-    return {
-        "system_total_memory_mb": get_total_memory_mb(),
-        "system_cpus": max(1, os.cpu_count() or 1),
-        "bwa_threads": get_bwa_threads(),
-        "sort_threads": min(4, get_bwa_threads()),
-        "sort_memory": get_sort_memory(),
-        "bqsr_memory_gb": get_bqsr_memory_gb(),
-        "markdup_memory": f"{get_markdup_memory_gb()}G",
-        "gatk_memory_gb": get_gatk_memory_gb(),
-    }
-
-
-def resolve_params_bam(alignment_path: str, output_yaml: str) -> dict[str, Any]:
+def resolve_params_bam(
+    alignment_path: str, output_yaml: str, cores: int | None = None
+) -> dict[str, Any]:
     """Resolve parameters for an external-alignment (BAM/CRAM) input.
 
     Skips FASTQ opening and sequencer detection entirely: a pre-aligned input
-    has no FASTQ header to read. Emits the same resource keys the rules consume
+    has no FASTQ header to read. Emits the same tuning keys the rules consume
     so calling/filtering run unchanged, with ``sequencer`` set to a sentinel and
     ``optical_duplicate_pixel_distance`` null (no de-duplication is performed in
-    ingest mode).
+    ingest mode). ``cores`` tunes per-job thread widths.
     """
     params: dict[str, Any] = {
         "resolved_at": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -339,7 +446,7 @@ def resolve_params_bam(alignment_path: str, output_yaml: str) -> dict[str, Any]:
         "schema": "bam",
         "sequencer": "external-alignment",
         "optical_duplicate_pixel_distance": None,
-        **_resource_params(),
+        **_tuning_params(cores),
     }
 
     out_dir = os.path.dirname(output_yaml)
@@ -364,11 +471,15 @@ def _detect_schema(header: Sequence[str]) -> str:
 # @MX:REASON: this function picks the schema-correct resolver; both the Snakefile
 #             auto-gen step and run.py depend on it producing a resolved_params.yaml
 #             with every key calling/filtering/mapping read. fan_in >= 3.
-def resolve_params_from_samples(samples_tsv: str, output_yaml: str) -> dict[str, Any]:
+def resolve_params_from_samples(
+    samples_tsv: str, output_yaml: str, cores: int | None = None
+) -> dict[str, Any]:
     """Detect the samples.tsv schema and resolve parameters accordingly.
 
     * bam schema   → :func:`resolve_params_bam` (no FASTQ access)
     * fastq schema → :func:`resolve_params` on the first ``fq1`` entry
+
+    ``cores`` is forwarded to tune per-job thread widths for the run's budget.
     """
     with open(samples_tsv) as fh:
         reader = csv.DictReader(fh, delimiter="\t")
@@ -376,13 +487,36 @@ def resolve_params_from_samples(samples_tsv: str, output_yaml: str) -> dict[str,
         first = next(reader)
 
     if _detect_schema(header) == "bam":
-        return resolve_params_bam(first["bam"], output_yaml)
-    return resolve_params(first["fq1"], output_yaml)
+        return resolve_params_bam(first["bam"], output_yaml, cores=cores)
+    return resolve_params(first["fq1"], output_yaml, cores=cores)
 
 
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
+
+def _print_tuning(params: dict[str, Any]) -> None:
+    """Print the host-tuned thread/engine choices with their evidence tier, so the
+    user can see (and, if needed, override) exactly what the auto-tuner picked."""
+    ram_gb = params.get("system_total_memory_mb", 0) // 1024
+    print(
+        f"[auto_params] host             : {params['system_cpus']} logical / "
+        f"{params['system_physical_cpus']} physical cores, {ram_gb} GB RAM "
+        f"(tuned for {params['tuned_for_cores']} cores)"
+    )
+    print(
+        f"[auto_params] bwa_threads      : {params['bwa_threads']}"
+        "        [HEURISTIC — no published optimum; benchmark to confirm]"
+    )
+    print(
+        f"[auto_params] markdup          : {params['markdup_engine']} x "
+        f"{params['markdup_threads']}   [DOC: Spark linear to ~16 cores]"
+    )
+    print(
+        f"[auto_params] mutect2_threads  : {params['mutect2_threads']}"
+        "        [DOC: GATK default 4, PairHMM-only]"
+    )
 
 
 def main() -> None:
@@ -402,12 +536,19 @@ def main() -> None:
         default="config/resolved_params.yaml",
         help="Output YAML path  (default: config/resolved_params.yaml)",
     )
+    parser.add_argument(
+        "--cores",
+        type=int,
+        default=None,
+        help="Core budget to tune per-job thread widths for "
+        "(default: detected logical CPUs). Pass the run's --cores to match it.",
+    )
     args = parser.parse_args()
 
     if args.samples:
-        params = resolve_params_from_samples(args.samples, args.output)
+        params = resolve_params_from_samples(args.samples, args.output, cores=args.cores)
     else:
-        params = resolve_params(args.fastq, args.output)
+        params = resolve_params(args.fastq, args.output, cores=args.cores)
 
     # bam-mode (external alignment) has no sequencer evidence to report.
     if params.get("schema") == "bam":
@@ -419,6 +560,7 @@ def main() -> None:
         print(f"[auto_params] bqsr_memory_gb   : {params['bqsr_memory_gb']}")
         print(f"[auto_params] gatk_memory_gb   : {params['gatk_memory_gb']}")
         print(f"[auto_params] markdup_memory   : {params['markdup_memory']}")
+        _print_tuning(params)
         print(f"[auto_params] saved to         → {args.output}")
         return
 
@@ -434,6 +576,7 @@ def main() -> None:
     print(f"[auto_params] bqsr_memory_gb   : {params['bqsr_memory_gb']}")
     print(f"[auto_params] gatk_memory_gb   : {params['gatk_memory_gb']}")
     print(f"[auto_params] markdup_memory   : {params['markdup_memory']}")
+    _print_tuning(params)
     print(f"[auto_params] saved to         → {args.output}")
 
 
