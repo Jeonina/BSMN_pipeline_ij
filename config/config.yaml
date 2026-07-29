@@ -51,11 +51,12 @@ mapping:
   #   spark  — GATK MarkDuplicatesSpark in local mode; same duplicate-flagging
   #            algorithm across markdup_threads cores, at the cost of extra RAM
   #            and scratch space under results/mapping/{sample}/tmp.
-  # 'auto' selects spark on hosts with >= 8 cores (Spark scales linearly to ~16
-  # cores per GATK docs) and single-threaded picard below that; pin "picard" or
-  # "spark" to override (e.g. config/config.storage32.yaml pins "spark").
+  # 'auto' = picard (single-threaded, but pipelines across samples on a many-core
+  # cohort and needs no fast scratch). Spark is an explicit OPT-IN: pin
+  # markdup_engine: "spark" only on hosts with fast LOCAL scratch — it ran ~2x
+  # slower than picard when its shuffle spilled to NFS (see auto-tuner notes).
   markdup_engine: auto
-  markdup_threads: auto          # 'auto' = min(16, cores); only used by the spark engine
+  markdup_threads: auto          # 'auto' = min(16, cores); only used when spark is pinned
 
 # -- Mutect2 calling parameters -----------------------------------------------
 calling:

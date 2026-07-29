@@ -272,19 +272,18 @@ def get_total_memory_mb() -> int:
 #                         linearly only to ~16 cores (GATK Javadoc); mutect2 threads
 #                         default 4 and PairHMM-only (GATK source); BQSR takes no
 #                         thread knob (Broad WDL — parallelised by interval scatter).
-#             [HEURISTIC] bwa per-job width, the >=8-core spark cutoff, and budgeting
-#                         on the logical core count — no published optimum exists, so
-#                         these are labelled and overridable via config ('auto'
-#                         defers here; an int/str pins a value).
+#             [HEURISTIC] bwa per-job width and budgeting on the logical core count
+#                         — no published optimum exists, so these are labelled and
+#                         overridable via config ('auto' defers here; an int/str
+#                         pins a value). markdup defaults to Picard; spark is an
+#                         explicit opt-in (needs fast local scratch — see FINDING in
+#                         the auto-tuner memory / derive_markdup docstring).
 # @MX:REASON: fan_in >= 3 — emitted into resolved_params.yaml and read by
 #             mapping.smk (bwa/markdup) and calling.smk (mutect2).
 # ---------------------------------------------------------------------------
 
 # [DOC] MarkDuplicatesSpark scales linearly only to ~16 cores — never exceed.
 _MARKDUP_SPARK_MAX_THREADS = 16
-# [HEURISTIC] Spark's parallel dedup earns its overhead once the host can feed it;
-# below this core count, single-threaded Picard is the simpler default.
-_SPARK_MIN_CORES = 8
 # [DOC] Mutect2 --native-pair-hmm-threads default; only the PairHMM is threaded, so
 # surplus cores are better spent on concurrent chromosomes than on this knob.
 _MUTECT2_PAIRHMM_THREADS = 4
@@ -318,15 +317,18 @@ def derive_bwa_threads(cores: int, ram_gb: int) -> int:
 def derive_markdup(cores: int) -> tuple[str, int]:
     """(engine, threads) for MarkDuplicates.
 
-    Engine is Spark once the host has >= ``_SPARK_MIN_CORES`` ([HEURISTIC] cutoff),
-    else single-threaded Picard. Thread count is capped at 16 because
-    MarkDuplicatesSpark scales linearly only to ~16 cores ([DOC]); the value is
-    unused by the Picard engine.
+    Auto-default is **Picard**, unconditionally. On a multi-sample cohort Picard
+    pipelines across samples on a many-core host (measured: 22/30 markdups flowed
+    through on the 168-core VM without stalling), needs no fast scratch, and has no
+    ``.parts`` staging fragility. Spark is left as an explicit opt-in
+    (``markdup_engine: spark`` in config) because it only wins with fast LOCAL
+    scratch — measured ~2x SLOWER than Picard when its shuffle spills to NFS — and
+    warrants per-host validation. The returned thread count (capped at 16, where
+    MarkDuplicatesSpark scaling flattens per [DOC]) applies only when spark is
+    pinned; Picard ignores it.
     """
     cores = max(1, int(cores))
-    if cores >= _SPARK_MIN_CORES:
-        return "spark", min(_MARKDUP_SPARK_MAX_THREADS, cores)
-    return "picard", 1
+    return "picard", min(_MARKDUP_SPARK_MAX_THREADS, cores)
 
 
 def derive_mutect2_threads(cores: int) -> int:

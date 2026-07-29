@@ -65,21 +65,26 @@ class TestDeriveBwaThreads:
 
 
 class TestDeriveMarkdup:
-    """Engine + threads: spark >= 8 cores (heuristic), threads capped at 16 (DOC)."""
+    """Auto-default is always Picard (spark is an explicit opt-in). The returned
+    thread count (capped at 16 per DOC) applies only when spark is pinned."""
 
     @pytest.mark.parametrize(
         ("cores", "expected"),
         [
-            (24, ("spark", 16)),   # capped at 16 even with 24 cores
-            (16, ("spark", 16)),
-            (8, ("spark", 8)),     # exactly at the cutoff
-            (7, ("picard", 1)),    # below cutoff -> single-threaded picard
-            (4, ("picard", 1)),
-            (200, ("spark", 16)),  # DOC ceiling holds far past 16
+            (24, ("picard", 16)),   # engine always picard; spark-thread count capped at 16
+            (16, ("picard", 16)),
+            (8, ("picard", 8)),
+            (7, ("picard", 7)),
+            (4, ("picard", 4)),
+            (200, ("picard", 16)),  # 16 ceiling holds far past 16
         ],
     )
     def test_engine_and_threads(self, cores, expected):
         assert derive_markdup(cores) == expected
+
+    def test_engine_is_always_picard(self):
+        for cores in (1, 4, 8, 16, 24, 168):
+            assert derive_markdup(cores)[0] == "picard"
 
     def test_threads_never_exceed_doc_ceiling(self):
         for cores in (8, 16, 32, 64, 180):
