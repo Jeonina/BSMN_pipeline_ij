@@ -103,8 +103,10 @@ def subsample(fq1: str, fq2: str, n_pairs: int, scratch: str) -> tuple[str, str]
     if n_pairs <= 0:
         return fq1, fq2
     os.makedirs(scratch, exist_ok=True)
-    out1 = os.path.join(scratch, "sub_R1.fastq")
-    out2 = os.path.join(scratch, "sub_R2.fastq")
+    # Key the file by pair count so a different --subsample never silently reuses a
+    # stale (wrong-size) subsample left in the same scratch dir.
+    out1 = os.path.join(scratch, f"sub_{n_pairs}_R1.fastq")
+    out2 = os.path.join(scratch, f"sub_{n_pairs}_R2.fastq")
     n_lines = n_pairs * 4
     for src, dst in ((fq1, out1), (fq2, out2)):
         if os.path.exists(dst) and os.path.getsize(dst) > 0:
