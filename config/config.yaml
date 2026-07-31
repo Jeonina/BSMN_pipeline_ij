@@ -17,6 +17,15 @@ samples: config/samples.tsv
 # Options: "mapping", "calling", "filtering", "all"
 stage: "mapping"
 
+# -- Scratch location ---------------------------------------------------------
+# Where per-job transient scratch (sort temp, Picard TMP, GATK java.io.tmpdir) goes.
+# Leave null to keep it under results/scratch (follows the output filesystem). When
+# results/ live on NFS, set this to a FAST LOCAL path so mapping is not bottlenecked
+# on NFS random I/O — e.g. a path on an SSD-backed local/Ceph disk. It is per-job
+# deleted (+ reclaimed by online `discard`), so it never accumulates: outputs, not
+# scratch, are what must stay off a capacity-bound disk.
+scratch_dir: null
+
 # -- Reference genome ---------------------------------------------------------
 ref:
   build: "hg38"                  # informational only — not read by the rules

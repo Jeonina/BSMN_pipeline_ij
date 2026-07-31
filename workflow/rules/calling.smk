@@ -65,7 +65,7 @@ rule mutect2_scatter:
         ),
         extra=_calling.get("mutect2_extra", ""),
         java_mem=_bqsr_mem_gb,
-        tmpdir="results/calling/{sample}/tmp/{chrom}",
+        tmpdir=scratch("{sample}", "mutect2_{chrom}"),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
         "logs/calling/{sample}/mutect2_scatter.{chrom}.log",
@@ -127,7 +127,7 @@ rule merge_vcfs:
     params:
         vcf_flags=lambda wildcards, input: " ".join(f"-I {v}" for v in input.vcfs),
         java_mem=_gatk_mem_gb,
-        tmpdir="results/calling/{sample}/tmp/merge",
+        tmpdir=scratch("{sample}", "merge"),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
         "logs/calling/{sample}/merge_vcfs.log",
@@ -361,7 +361,7 @@ rule filter_mutect_calls:
         ref=REF,
         extra=_calling.get("filter_extra", ""),
         java_mem=_gatk_mem_gb,
-        tmpdir="results/calling/{sample}/tmp/filter",
+        tmpdir=scratch("{sample}", "filter"),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
         "logs/calling/{sample}/filter_mutect_calls.log",

@@ -75,6 +75,7 @@ rule bwa_mem_sort:
         bwa_threads=lambda wildcards, threads: threads,
         sort_threads=lambda wildcards, threads: max(2, threads // 4),
         sort_memory=RESOLVED["sort_memory"],
+        sort_tmp=scratch("{sample}", "sort_{rg}"),
         bwa_sif=CONTAINERS["bwa"]["sif"],
         sambamba_sif=CONTAINERS["sambamba"]["sif"],
     log:
@@ -85,7 +86,7 @@ rule bwa_mem_sort:
         runtime=1440,
     shell:
         """
-        mkdir -p $(dirname {output.bam})
+        mkdir -p $(dirname {output.bam}) {params.sort_tmp}
         (apptainer exec {params.bwa_sif} bwa mem \
             -M -t {params.bwa_threads} \
             -R '{params.rg}' \
@@ -94,7 +95,9 @@ rule bwa_mem_sort:
             -S -f bam -l 0 /dev/stdin \
         | apptainer exec {params.sambamba_sif} sambamba sort \
             -m {params.sort_memory} -t {params.sort_threads} \
+            --tmpdir {params.sort_tmp} \
             -o {output.bam} /dev/stdin) 2> {log}
+        rm -rf {params.sort_tmp}
         """
 
 
@@ -155,7 +158,7 @@ rule mark_duplicates:
     params:
         java_mem=RESOLVED["markdup_memory"],
         odpd=RESOLVED["optical_duplicate_pixel_distance"],
-        tmpdir="results/mapping/{sample}/tmp",
+        tmpdir=scratch("{sample}", "markdup"),
         engine=_MARKDUP_ENGINE,
         picard_sif=CONTAINERS["picard"]["sif"],
         picard_jar=CONTAINERS["picard"]["jar"],
@@ -221,7 +224,7 @@ rule base_recalibrator_scatter:
         dbsnp=config["known_sites"]["dbsnp"],
         mills=config["known_sites"]["mills"],
         indels=config["known_sites"]["indels"],
-        tmpdir="results/mapping/{sample}/tmp/bqsr_{chrom}",
+        tmpdir=scratch("{sample}", "bqsr_{chrom}"),
         bqsr_mem=RESOLVED.get("gatk_memory_gb", 8),
         gatk_sif=CONTAINERS["gatk"]["sif"],
     log:
@@ -316,7 +319,7 @@ rule apply_bqsr:
         crai="results/mapping/{sample}/{sample}.cram.crai",
     params:
         ref=REF,
-        tmpdir="results/mapping/{sample}/tmp",
+        tmpdir=scratch("{sample}", "applybqsr"),
         bqsr_mem=RESOLVED["bqsr_memory_gb"],
         gatk_sif=CONTAINERS["gatk"]["sif"],
         samtools_sif=CONTAINERS["samtools"]["sif"],

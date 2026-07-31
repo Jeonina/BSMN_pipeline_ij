@@ -32,6 +32,24 @@ def _auto(cfg_value, resolved_key, default):
         return RESOLVED.get(resolved_key, default)
     return cfg_value
 
+
+# --- Transient scratch relocation --------------------------------------------
+# Heavy random-I/O scratch (sambamba sort temp, Picard TMP_DIR, GATK java.io.tmpdir)
+# is created and `rm -rf`'d per job. `scratch_dir` (config) relocates it to a fast
+# LOCAL path so mapping is not bottlenecked on NFS random I/O when results/ live on
+# NFS. Unset -> results/scratch (follows the output filesystem). Pointing scratch at
+# fast local storage does NOT re-create the storage-full incident: that was OUTPUT
+# accumulation (CRAMs), whereas scratch is per-job-deleted and (with online discard)
+# reclaimed immediately, so it never accumulates. Outputs still land under results/.
+_SCRATCH_DIR = config.get("scratch_dir") or None
+
+
+def scratch(*parts):
+    """Return a per-job scratch path under scratch_dir (if set) else results/scratch.
+    Rules must still `mkdir -p` it before use and `rm -rf` it after."""
+    base = _SCRATCH_DIR if _SCRATCH_DIR else os.path.join("results", "scratch")
+    return os.path.join(base, *parts)
+
 # --- Container specs (config/containers.yaml) --------------------------------
 
 _containers_path = "config/containers.yaml"
