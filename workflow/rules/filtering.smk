@@ -198,8 +198,12 @@ rule cnvnator_root:
 
     CNVnator reads alignments via htslib; CRAM decoding is done reliably by
     samtools (-T ref) into a temp BAM restricted to the analysis chromosomes,
-    which is then fed to `-tree`. v0.4.1 builds the GC histogram from a single
-    reference via `-his ... -fasta` (no per-chromosome split needed).
+    which is then fed to `-tree`. That BAM goes to scratch(), not into the
+    output tree: it is the largest transient in the pipeline (~250-300 GB per
+    sample) and its location must follow the scratch_dir policy like every other
+    rule's, so it is never mistaken for an output or backed up as one.
+    v0.4.1 builds the GC histogram from a single reference via `-his ... -fasta`
+    (no per-chromosome split needed).
     """
     input:
         cram="results/mapping/{sample}/{sample}.cram",
@@ -211,7 +215,8 @@ rule cnvnator_root:
         chrom=" ".join(CHROMOSOMES),
         binsize=_filtering.get("cnvnator", {}).get("binsize", 100),
         outdir="results/filtering/{sample}/cnvnator",
-        tmpbam="results/filtering/{sample}/cnvnator/{sample}.tmp.bam",
+        tmpdir=scratch("{sample}", "cnvnator"),
+        tmpbam=os.path.join(scratch("{sample}", "cnvnator"), "{sample}.tmp.bam"),
         cnvnator_sif=CONTAINERS["cnvnator"]["sif"],
         samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
@@ -229,7 +234,12 @@ rule cnvnator_root:
         echo "[cnvnator_root] START $(date -Iseconds)  sample={wildcards.sample}"
         echo "[cnvnator_root] chrom={params.chrom}  binsize={params.binsize}"
         echo "================================================================"
-        mkdir -p {params.outdir}
+        mkdir -p {params.outdir} {params.tmpdir}
+        # The decoded BAM is ~250-300 GB per sample. Clean it on ANY exit, not
+        # just the success path: a crash or a reboot mid-rule otherwise strands
+        # it, and Snakemake cannot reclaim it because it is not a declared
+        # output. At the concurrency this stage now runs at that is TB-scale.
+        trap 'rm -rf {params.tmpdir}' EXIT
         rm -f {output.root}
 
         # Reliable CRAM decode (samtools -T ref) → temp BAM on analysis chromosomes
@@ -245,7 +255,6 @@ rule cnvnator_root:
         apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -partition {params.binsize}
         apptainer exec {params.cnvnator_sif} cnvnator -root {output.root} -chrom {params.chrom} -call {params.binsize} > {params.outdir}/{wildcards.sample}.cnvcall
 
-        rm -f {params.tmpbam} {params.tmpbam}.bai
         echo "[cnvnator_root] END $(date -Iseconds)"
         echo "================================================================"
         """
