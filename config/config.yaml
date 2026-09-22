@@ -173,10 +173,23 @@ filtering:
 
   # Step 5: MosaicForecast filter (BSMN E-step, DEFAULT: RF mosaic prediction)
   #   Scripts + k24.umap.wg.bw ship inside the mosaicforecast image; the RF
-  #   model is cloned to resources/MosaicForecast/. Pick the model by depth
-  #   (250x for ~300x HG002; 200x for the brain WGS study).
+  #   models are cloned to resources/MosaicForecast/models_trained/.
+  #
+  #   [HARD] THE MODEL IS DEPTH-SPECIFIC AND MUST MATCH YOUR DATA.
+  #   Scoring ~30x WGS with the 250x model (or the reverse) silently changes
+  #   every mosaic call - there is no error and nothing downstream detects it.
+  #   Pick by the MEAN COVERAGE of your samples, not by what is committed here:
+  #
+  #   Rule: choose the model whose depth label is NEAREST your mean coverage.
+  #   `ls resources/MosaicForecast/models_trained/` lists what the clone gave you
+  #   (the file names carry the depth, e.g. 100xRFmodel_addRMSK_Refine.rds); the
+  #   filtering stage refuses to start if the configured file is absent, and the
+  #   error prints the available models.
+  #   Mean coverage per sample: results/mapping/{sample}/flagstat.txt gives the
+  #   mapped read count -- coverage = mapped_reads * read_length / 3.1e9.
+  #   The value below is set for THIS cohort (~100-110x brain WGS).
   mosaicforecast:
-    model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
+    model: "resources/MosaicForecast/models_trained/100xRFmodel_addRMSK_Refine.rds"
     mode: "Refine"
     min_prob: 0.0           # 0 = all mosaic calls; 0.6 = high-confidence only
     timeout: 900            # first-attempt per-variant feature-extraction timeout (s); doubles per retry

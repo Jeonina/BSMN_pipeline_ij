@@ -59,6 +59,29 @@ def _fthreads(rule_name, default):
     return max(1, int(_threads_cfg.get(rule_name, default)))
 
 
+# MosaicForecast RF model. The trained models are depth-specific: scoring ~30x
+# WGS with the 250x model (or the reverse) silently changes every mosaic call,
+# and nothing downstream can detect it. Fail at parse time on a model that is not
+# there, and show what IS available so the choice is made deliberately.
+_mf_model = (_filtering.get("mosaicforecast", {}) or {}).get("model", "")
+if config.get("stage") in ("filtering", "all") and _mf_model and not os.path.exists(_mf_model):
+    _mf_dir = os.path.dirname(_mf_model) or "resources/MosaicForecast/models_trained"
+    try:
+        _available = sorted(f for f in os.listdir(_mf_dir) if f.endswith(".rds"))
+    except OSError:
+        _available = []
+    raise WorkflowError(
+        f"MosaicForecast model not found: {_mf_model}\n"
+        "filtering.mosaicforecast.model must name the trained model whose depth "
+        "matches your data's mean coverage.\n"
+        + (
+            "Available in %s:\n  %s" % (_mf_dir, "\n  ".join(_available))
+            if _available
+            else "No .rds models under %s - run scripts/server_setup.sh first." % _mf_dir
+        )
+    )
+
+
 def _fmem_mb(rule_name, default_gb):
     """mem_mb reservation for a filtering rule (config filtering.mem_gb.{rule}).
 

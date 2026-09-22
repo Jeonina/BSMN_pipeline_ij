@@ -103,7 +103,11 @@ fi
 # config filtering.mosaicforecast.model). The container ships the MF scripts +
 # k24 bigwig but NOT the models_trained/*.rds files.
 MF_DIR="resources/MosaicForecast"
-MF_MODEL="$MF_DIR/models_trained/250xRFmodel_addRMSK_Refine.rds"
+# Verify the model the config actually points at, not a hardcoded one: the RF
+# models are depth-specific and each cohort picks its own (see the depth rule in
+# config/config.yaml filtering.mosaicforecast.model).
+MF_MODEL="$(sed -n 's/^[[:space:]]*model:[[:space:]]*"\(.*\)".*/\1/p' config/config.yaml | head -1)"
+[[ -n "$MF_MODEL" ]] || MF_MODEL="$MF_DIR/models_trained/250xRFmodel_addRMSK_Refine.rds"
 if [[ -f "$MF_MODEL" ]]; then
     echo "  ✓ $MF_MODEL (already present)"
 else
@@ -114,6 +118,9 @@ else
         echo "  ✓ $MF_MODEL"
     else
         echo "  ✗ MosaicForecast clone did not contain $MF_MODEL"
+        echo "    Models the clone DOES provide (set one in config/config.yaml"
+        echo "    filtering.mosaicforecast.model, matching your mean coverage):"
+        ls -1 "$MF_DIR/models_trained/" 2>/dev/null | sed 's/^/      /' || true
     fi
 fi
 
@@ -137,7 +144,7 @@ REQUIRED_FILES=(
     "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
     "resources/hg38/PON.q20q20.05.5.fa"
     "resources/hg38/PON.q20q20.05.5.fa.fai"
-    "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
+    "$MF_MODEL"
 )
 
 ALL_OK=true
