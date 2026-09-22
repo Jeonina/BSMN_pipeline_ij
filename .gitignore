@@ -38,3 +38,6 @@ config/samples.tsv
 .coverage
 .coverage.*
 htmlcov/
+
+# Snakemake benchmark TSVs (per-run measurements, not for git)
+benchmarks/filtering/

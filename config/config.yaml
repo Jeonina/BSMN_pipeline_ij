@@ -120,6 +120,26 @@ calling:
 #   1 accessibility(mask_1kg) -> 2 germline(gnomad) -> 3 vaf -> 4 cnvnator ->
 #   5 mosaicforecast -> 6 pon_mask.   (mayo is the unwired E-step alternative.)
 filtering:
+  # -- Per-rule concurrency knobs ---------------------------------------------
+  # threads = what each tool can actually use, NOT a fraction of the host.
+  # Filtering throughput comes from running many SAMPLES at once, so an oversized
+  # per-rule count just idles the reservation and caps concurrency: the previous
+  # `cores//2` gave cnvnator_root 90 threads on the 180-core host = 2 concurrent
+  # samples = ~25 days for the cohort, against ~5.5 days at 9.
+  threads:
+    vaf_filter: 8          # ThreadPoolExecutor over candidate mpileups (NFS-latency bound)
+    cnvnator_root: 8       # samtools CRAM decode only — CNVnator's 5 passes are single-threaded
+    mayo_filter: 4
+    pon_mask_filter: 4
+
+  # mem_gb overrides per rule. The built-in defaults are derived from
+  # gatk_memory_gb and are UNMEASURED (CNVnator is not even a JVM tool), and they
+  # become the next concurrency gate once threads are right: 16 GB for
+  # cnvnator_root caps the stage at 4 concurrent on a 75 GB budget. Every rule now
+  # writes benchmarks/filtering/{sample}/{rule}.tsv — read max_rss (MB) from the
+  # first samples and pin the values here before scaling to the full cohort.
+  mem_gb: {}              # e.g.  cnvnator_root: 6
+
   # Step 2: germline filter (remove gnomAD AF > 0.001 known germline)
   gnomad:
     snps: "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"

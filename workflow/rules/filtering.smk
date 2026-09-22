@@ -41,6 +41,34 @@ _SCRIPTS = os.path.abspath("scripts")
 # Dynamic resource helpers
 _gatk_mem_gb = RESOLVED.get("gatk_memory_gb", 8)
 
+# Per-rule thread counts.  These were declared as a fraction of workflow.cores,
+# which on a many-core host reserves the whole machine for ONE sample:
+# cnvnator_root asked for cores//2 (= 90 on the 180-core host) and capped the
+# stage at 2 concurrent samples, even though only the samtools CRAM decode can
+# use that reservation — CNVnator's five passes are single-threaded, and the
+# measured 3 h 04 m of cnvnator_root is dominated by them (D19699 pilot).
+# Filtering throughput comes from per-sample CONCURRENCY, not per-sample speed,
+# so the counts are now fixed at what each tool can actually use, independent of
+# host size, and overridable via config filtering.threads.{rule}.
+_threads_cfg = _filtering.get("threads", {}) or {}
+_mem_cfg = _filtering.get("mem_gb", {}) or {}
+
+
+def _fthreads(rule_name, default):
+    """Threads for a filtering rule (config filtering.threads.{rule})."""
+    return max(1, int(_threads_cfg.get(rule_name, default)))
+
+
+def _fmem_mb(rule_name, default_gb):
+    """mem_mb reservation for a filtering rule (config filtering.mem_gb.{rule}).
+
+    Defaults are UNMEASURED — they are the historical gatk_memory_gb-derived
+    values, and gatk_memory_gb is a poor proxy for CNVnator, which is not a JVM
+    tool.  Every rule now writes a benchmark TSV (max_rss column); set these keys
+    from the observed peak before scaling the stage out to the full cohort.
+    """
+    return int(_mem_cfg.get(rule_name, default_gb)) * 1024
+
 
 rule accessibility_filter:
     """
@@ -60,9 +88,11 @@ rule accessibility_filter:
         script=os.path.join(_SCRIPTS, "accessibility_filter.py"),
     log:
         "logs/filtering/{sample}/accessibility_filter.log",
+    benchmark:
+        "benchmarks/filtering/{sample}/accessibility_filter.tsv"
     threads: 1
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("accessibility_filter", _gatk_mem_gb),
         runtime=480,
     shell:
         """
@@ -104,9 +134,11 @@ rule germline_filter:
         script=os.path.join(_SCRIPTS, "germline_filter.py"),
     log:
         "logs/filtering/{sample}/germline_filter.log",
+    benchmark:
+        "benchmarks/filtering/{sample}/germline_filter.tsv"
     threads: 1
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("germline_filter", _gatk_mem_gb),
         runtime=120,
     shell:
         """
@@ -139,9 +171,11 @@ rule vaf_filter:
         script=os.path.join(_SCRIPTS, "vaf_filter.py"),
     log:
         "logs/filtering/{sample}/vaf_filter.log",
-    threads: max(2, workflow.cores // 4)
+    benchmark:
+        "benchmarks/filtering/{sample}/vaf_filter.tsv"
+    threads: _fthreads("vaf_filter", 8)
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("vaf_filter", _gatk_mem_gb),
         runtime=480,
     shell:
         """
@@ -182,9 +216,11 @@ rule cnvnator_root:
         samtools_sif=CONTAINERS["samtools"]["sif"],
     log:
         "logs/filtering/{sample}/cnvnator_root.log",
-    threads: max(4, workflow.cores // 2)
+    benchmark:
+        "benchmarks/filtering/{sample}/cnvnator_root.tsv"
+    threads: _fthreads("cnvnator_root", 8)
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024 * 2,
+        mem_mb=_fmem_mb("cnvnator_root", _gatk_mem_gb * 2),
         runtime=1440,
     shell:
         """
@@ -235,9 +271,11 @@ rule cnvnator_filter:
         script=os.path.join(_SCRIPTS, "cnvnator_filter.py"),
     log:
         "logs/filtering/{sample}/cnvnator_filter.log",
+    benchmark:
+        "benchmarks/filtering/{sample}/cnvnator_filter.tsv"
     threads: 1
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("cnvnator_filter", _gatk_mem_gb),
         runtime=240,
     shell:
         """
@@ -294,9 +332,11 @@ rule mayo_filter:
         mayo_script=os.path.join(_SCRIPTS, "mayo_filter.py"),
     log:
         "logs/filtering/{sample}/mayo_filter.log",
-    threads: max(2, workflow.cores // 4)
+    benchmark:
+        "benchmarks/filtering/{sample}/mayo_filter.tsv"
+    threads: _fthreads("mayo_filter", 4)
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("mayo_filter", _gatk_mem_gb),
         runtime=480,
     shell:
         """
@@ -374,12 +414,16 @@ rule mosaicforecast_filter:
         ),
         mode=_filtering.get("mosaicforecast", {}).get("mode", "Refine"),
         min_prob=_filtering.get("mosaicforecast", {}).get("min_prob", 0.0),
-        timeout=_filtering.get("mosaicforecast", {}).get("timeout", 300),
-        retries=_filtering.get("mosaicforecast", {}).get("retries", 5),
+        timeout=_filtering.get("mosaicforecast", {}).get("timeout", 900),
+        timeout_max=_filtering.get("mosaicforecast", {}).get("timeout_max", 3600),
+        retries=_filtering.get("mosaicforecast", {}).get("retries", 3),
+        max_dropout=_filtering.get("mosaicforecast", {}).get("max_dropout", 0.10),
         mf_sif=CONTAINERS["mosaicforecast"]["sif"],
         script=os.path.join(_SCRIPTS, "mosaicforecast_filter.py"),
     log:
         "logs/filtering/{sample}/mosaicforecast_filter.log",
+    benchmark:
+        "benchmarks/filtering/{sample}/mosaicforecast_filter.tsv"
     # One worker per concurrent variant (variants are independent); Snakemake
     # caps this at --cores. Tune via config filtering.mosaicforecast.workers.
     threads: _filtering.get("mosaicforecast", {}).get("workers", 4)
@@ -407,7 +451,9 @@ rule mosaicforecast_filter:
             --workers {threads} \
             --threads 1 \
             --timeout {params.timeout} \
+            --timeout-max {params.timeout_max} \
             --retries {params.retries} \
+            --max-dropout {params.max_dropout} \
             --min-prob {params.min_prob} \
             > {output.txt}
 
@@ -439,9 +485,11 @@ rule pon_mask_filter:
         script=os.path.join(_SCRIPTS, "pon_mask_filter.py"),
     log:
         "logs/filtering/{sample}/pon_mask_filter.log",
-    threads: max(2, workflow.cores // 4)
+    benchmark:
+        "benchmarks/filtering/{sample}/pon_mask_filter.tsv"
+    threads: _fthreads("pon_mask_filter", 4)
     resources:
-        mem_mb=lambda wildcards: _gatk_mem_gb * 1024,
+        mem_mb=_fmem_mb("pon_mask_filter", _gatk_mem_gb),
         runtime=120,
     shell:
         """
