@@ -107,6 +107,48 @@ python run.py /data/cohort/ --sample-per-dir --stage mapping --cores 150
 
 ---
 
+### Host-specific settings — read this before the first run on a new server
+
+Four things are **not** portable between hosts. `run.py` handles the first two
+for you; if you drive Snakemake directly you must supply them yourself.
+
+**1. Memory budget.** Snakemake honours a rule's `resources: mem_mb` *only* when
+you give it a budget. With `--cores` alone every declaration is inert and
+concurrency is bounded by cores, which overcommits RAM — `base_recalibrator_scatter`
+is `threads: 1` at ~8.5 GB, so `--cores 32` schedules 32 of them and asks for
+~272 GB. `run.py` passes `--resources mem_mb=<85% of host RAM>` automatically;
+override with `--mem-mb`. Driving Snakemake directly:
+
+```bash
+snakemake --snakefile workflow/Snakefile --cores 32 --resources mem_mb=54000 ...
+```
+
+**2. Container binds.** Apptainer only exposes the working directory. FASTQs on
+another mount — or a `results`/`resources` symlink pointing at NFS — are invisible
+inside the container, and **a dry-run still passes** because it resolves paths on
+the host. `run.py` composes `APPTAINER_BIND` from your sample sheet and config.
+Driving Snakemake directly:
+
+```bash
+export APPTAINER_BIND=/storage/wgs,/tmp
+```
+
+**3. MosaicForecast model depth.** `filtering.mosaicforecast.model` is
+depth-specific. The committed value matches this cohort (~100x); scoring ~30x WGS
+with it silently changes every mosaic call. Pick the model whose depth label is
+nearest your mean coverage — `ls resources/MosaicForecast/models_trained/`. The
+filtering stage refuses to start if the configured file is absent.
+
+**4. Sample sheet.** Use `run.py` (`--sample-per-dir` for one-directory-per-sample
+layouts). `scripts/build_cohort_samples.py` is **not** general — it encodes this
+lab's barcode/flowcell layout and defaults to `--data-root /mnt/data`.
+
+Everything else adapts on its own: `scripts/auto_params.py` derives thread counts
+and Java heaps from the host's cores and RAM at run time, and the container URIs
+in `config/containers.yaml` are pulled on demand.
+
+---
+
 ## 3. Run
 
 ### Local

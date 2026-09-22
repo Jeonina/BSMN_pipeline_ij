@@ -259,6 +259,24 @@ def get_total_memory_mb() -> int:
         return 16384
 
 
+# Fraction of host RAM Snakemake may schedule jobs against. The remainder is
+# left to the OS, page cache and the driver itself.
+_SCHEDULING_MEM_FRACTION = 0.85
+
+
+def get_scheduling_mem_mb() -> int:
+    """Total ``mem_mb`` budget to hand Snakemake via ``--resources mem_mb``.
+
+    [HARD] Snakemake enforces a rule's ``resources: mem_mb`` ONLY when a budget
+    is supplied. Without ``--resources mem_mb=N`` every declaration in
+    workflow/rules/*.smk is inert and concurrency is bounded by cores alone --
+    e.g. base_recalibrator_scatter is ``threads: 1`` at ~8.5 GB, so ``--cores 32``
+    schedules 32 of them and asks for ~272 GB. Any host whose core count exceeds
+    (RAM / per-job mem) will overcommit and get OOM-killed.
+    """
+    return max(4096, int(get_total_memory_mb() * _SCHEDULING_MEM_FRACTION))
+
+
 # ---------------------------------------------------------------------------
 # Host-aware thread / engine derivation  (the auto-tuner)
 #
@@ -393,6 +411,7 @@ def _tuning_params(cores: int | None = None) -> dict[str, Any]:
         "bqsr_memory_gb": get_bqsr_memory_gb(),
         "markdup_memory": f"{get_markdup_memory_gb()}G",
         "gatk_memory_gb": get_gatk_memory_gb(),
+        "scheduling_mem_mb": get_scheduling_mem_mb(),
     }
 
 

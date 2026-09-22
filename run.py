@@ -22,10 +22,13 @@ Usage
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 # scripts/ 디렉토리를 경로에 추가 (make_samples_tsv 직접 임포트)
 _SCRIPTS = Path(__file__).resolve().parent / "scripts"
@@ -146,6 +149,79 @@ def runtime_minutes_to_hms(minutes: int) -> str:
     return f"{hours:02d}:{mins:02d}:00"
 
 
+def _config_value(key: str, default=None):
+    """Read one top-level key out of config/config.yaml (best effort)."""
+    try:
+        with open("config/config.yaml") as fh:
+            return (yaml.safe_load(fh) or {}).get(key, default)
+    except Exception:
+        return default
+
+
+def _resolve_mem_mb(explicit: int | None) -> int:
+    """Total mem_mb budget for Snakemake, from the host when not pinned.
+
+    [HARD] Snakemake enforces a rule's `resources: mem_mb` ONLY when a budget is
+    supplied. Passing just --cores makes every mem_mb declaration inert and lets
+    concurrency be bounded by cores alone, which overcommits RAM on any host
+    where cores outnumber (RAM / per-job mem).
+    """
+    if explicit:
+        return explicit
+    from auto_params import get_scheduling_mem_mb
+
+    return get_scheduling_mem_mb()
+
+
+# Always exposed to the containers regardless of where inputs live (job scratch
+# defaults under it). Module-level so tests can neutralise it.
+_ALWAYS_BIND: tuple[str, ...] = ("/tmp",)
+
+
+def _apptainer_binds(rows: list[dict]) -> list[str]:
+    """Directories the containers must see that live OUTSIDE the working dir.
+
+    Apptainer only exposes the working directory by default, so FASTQs on a
+    separate mount -- or a `results`/`resources` symlink pointing at NFS --
+    are invisible inside the container. The failure is silent at plan time: a
+    dry-run resolves paths on the HOST and passes, then bwa dies mid-run.
+    """
+    cwd = Path.cwd().resolve()
+    candidates: set[Path] = set()
+
+    for row in rows:
+        for key in ("fq1", "fq2", "bam"):
+            value = row.get(key)
+            if value:
+                try:
+                    candidates.add(Path(value).resolve().parent)
+                except OSError:
+                    continue
+
+    # These are routinely symlinked onto other filesystems.
+    for name in ("resources", "containers", "results"):
+        path = Path(name)
+        if path.exists():
+            candidates.add(path.resolve())
+
+    scratch = _config_value("scratch_dir")
+    if scratch:
+        candidates.add(Path(scratch).resolve())
+
+    for always in _ALWAYS_BIND:
+        candidates.add(Path(always))
+
+    outside = set()
+    for path in candidates:
+        if path == cwd or cwd in path.parents:
+            continue  # already visible
+        outside.add(path)
+
+    # Drop any path already covered by an ancestor in the set.
+    minimal = [p for p in outside if not any(other in p.parents for other in outside)]
+    return sorted(str(p) for p in minimal)
+
+
 # ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
@@ -181,6 +257,16 @@ def main() -> None:
         type=int,
         default=80,
         help="사용할 CPU 코어 수 (기본값: 80, --cluster slurm 사용 시 무시됨)",
+    )
+    parser.add_argument(
+        "--mem-mb",
+        type=int,
+        default=None,
+        dest="mem_mb",
+        help=(
+            "Snakemake 전체 메모리 예산 (MB). 미지정 시 호스트 RAM의 85%%로 자동 산정. "
+            "이 값이 없으면 룰의 mem_mb 선언이 무시되어 OOM 위험이 있습니다."
+        ),
     )
     parser.add_argument(
         "--cluster",
@@ -274,17 +360,31 @@ def main() -> None:
         cmd.extend(["--profile", "workflow/profiles/slurm"])
         print("[run.py]    Running on SLURM cluster (profile: workflow/profiles/slurm)")
     else:
-        cmd.extend(["--cores", str(args.cores)])
+        mem_mb = _resolve_mem_mb(args.mem_mb)
+        cmd.extend(["--cores", str(args.cores), "--resources", f"mem_mb={mem_mb}"])
+        source = "지정" if args.mem_mb else "호스트 RAM에서 자동 산정"
+        print(f"[run.py]    메모리 예산: {mem_mb} MB ({source})")
 
     if args.dry_run:
         cmd.append("--dry-run")
     if args.snakemake_args:
         cmd.extend(args.snakemake_args.split())
 
+    # Containers only see the working directory unless told otherwise. Compose
+    # the binds from the actual inputs rather than relying on the operator to
+    # remember; an existing APPTAINER_BIND is extended, never replaced.
+    env = os.environ.copy()
+    binds = _apptainer_binds(rows)
+    if binds:
+        existing = [b for b in env.get("APPTAINER_BIND", "").split(",") if b]
+        merged = existing + [b for b in binds if b not in existing]
+        env["APPTAINER_BIND"] = ",".join(merged)
+        print(f"[run.py]    APPTAINER_BIND: {env['APPTAINER_BIND']}")
+
     print("\n[run.py] ② Snakemake 실행:")
     print(f"   {' '.join(cmd)}\n")
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=env)
     sys.exit(result.returncode)
 
 
