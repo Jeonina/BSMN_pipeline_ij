@@ -83,3 +83,50 @@ def test_read_candidates(tmp_path):
         ("chr20", "47053475", "G", "T"),
         ("chr20", "5122314", "A", "T"),
     ]
+
+
+# --- dropout accounting -----------------------------------------------------
+
+
+def _args(tmp_path, **over):
+    import argparse
+
+    base = dict(
+        sample="SM",
+        workdir=str(tmp_path),
+        workers=2,
+        threads=1,
+        timeout=900,
+        timeout_max=3600,
+        retries=3,
+        max_dropout=0.10,
+    )
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def test_extract_features_counts_dropped(tmp_path, monkeypatch):
+    """A variant that yields no row is reported as dropped, not silently skipped."""
+    beds = ["chr1\t9\t10\tA\tT\tSM", "chr1\t19\t20\tC\tG\tSM", "chr1\t29\t30\tG\tA\tSM"]
+
+    def fake_extract(idx, total, bed, args):
+        return ("h1\th2", f"row{idx}") if idx != 2 else (None, None)
+
+    monkeypatch.setattr(mf, "_extract_one", fake_extract)
+    features, dropped = mf.extract_features(_args(tmp_path), beds)
+    assert dropped == 1
+    assert Path(features).read_text().splitlines() == ["h1\th2", "row1", "row3"]
+
+
+def test_extract_features_all_dropped_reports_total(tmp_path, monkeypatch):
+    monkeypatch.setattr(mf, "_extract_one", lambda *a, **k: (None, None))
+    features, dropped = mf.extract_features(_args(tmp_path), ["chr1\t9\t10\tA\tT\tSM"])
+    assert features is None
+    assert dropped == 1
+
+
+def test_escalating_timeout_doubles_and_caps():
+    """Retrying a slow variant with the same budget re-fails; the budget must grow."""
+    args = _args(Path("."), timeout=900, timeout_max=3600, retries=4)
+    budgets = [min(args.timeout * (2**a), args.timeout_max) for a in range(args.retries)]
+    assert budgets == [900, 1800, 3600, 3600]

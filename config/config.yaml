@@ -159,8 +159,10 @@ filtering:
     model: "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
     mode: "Refine"
     min_prob: 0.0           # 0 = all mosaic calls; 0.6 = high-confidence only
-    timeout: 300            # per-variant feature-extraction timeout (s)
-    retries: 5
+    timeout: 900            # first-attempt per-variant feature-extraction timeout (s); doubles per retry
+    timeout_max: 3600       # ceiling for the escalating timeout
+    retries: 3
+    max_dropout: 0.10       # fail the rule if more than this fraction yield no features
     workers: 4              # concurrent variants (parallel RLF processes); capped at --cores
 
   # Step 6: PON mask

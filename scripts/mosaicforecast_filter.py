@@ -123,6 +123,10 @@ def _extract_one(
         for attempt in range(args.retries):
             if os.path.exists(tout):
                 os.remove(tout)
+            # Escalating timeout: a variant that exceeds the budget is slow, not
+            # flaky, so retrying with the SAME budget re-fails deterministically
+            # and only burns wall time. Double each attempt, capped.
+            budget = min(args.timeout * (2 ** attempt), args.timeout_max)
             cmd = _apptainer(
                 args.mf_sif,
                 "python3",
@@ -136,11 +140,11 @@ def _extract_one(
                 args.fmt,
             )
             try:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
             except subprocess.TimeoutExpired:
                 log.warning(
-                    "[%d/%d] timeout (attempt %d/%d) — retrying",
-                    idx, total, attempt + 1, args.retries,
+                    "[%d/%d] timeout after %ds (attempt %d/%d) — retrying",
+                    idx, total, budget, attempt + 1, args.retries,
                 )
                 continue
             break  # completed (success measured by TOUT below); only timeouts retry
@@ -157,7 +161,10 @@ def _extract_one(
                 (proc.stderr or proc.stdout or "").strip()[-400:],
             )
         else:
-            log.warning("[%d/%d] no features: all %d attempts timed out", idx, total, args.retries)
+            log.warning(
+                "[%d/%d] no features: all %d attempts timed out (last budget %ds)",
+                idx, total, args.retries, budget,
+            )
     except Exception as exc:  # one bad variant must not abort the whole batch
         log.warning("[%d/%d] feature extraction error: %s", idx, total, exc)
     finally:
@@ -167,8 +174,13 @@ def _extract_one(
     return header, row
 
 
-def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
-    """Per-variant feature extraction, parallelized across variants. Returns features path.
+def extract_features(args: argparse.Namespace, beds: list[str]) -> tuple[str | None, int]:
+    """Per-variant feature extraction, parallelized across variants.
+
+    Returns (features path, dropped count). A dropped variant is one that never
+    produced a feature row — it is NOT a negative call, it is an unevaluated
+    candidate, so the caller must decide whether the dropout rate invalidates
+    the sample rather than silently predicting on the survivors.
 
     Runs `args.workers` RLF processes concurrently (variants are independent); each
     process uses `args.threads` internal threads. Results are reassembled in input
@@ -188,16 +200,21 @@ def extract_features(args: argparse.Namespace, beds: list[str]) -> str | None:
         for fut in concurrent.futures.as_completed(futs):
             results[futs[fut]] = fut.result()
 
+    dropped = sum(1 for _, row in results if not row)
     header = next((h for h, _ in results if h), None)
     if header is None:
         log.warning("no features extracted for any candidate")
-        return None
+        return None, total
     with open(features, "w") as feat:
         feat.write(header + "\n")
         for _, row in results:
             if row:
                 feat.write(row + "\n")
-    return features
+    log.info(
+        "features: %d/%d extracted, %d dropped (%.1f%%)",
+        total - dropped, total, dropped, 100.0 * dropped / total if total else 0.0,
+    )
+    return features, dropped
 
 
 def predict(args: argparse.Namespace, features: str) -> str:
@@ -224,7 +241,17 @@ def run(args: argparse.Namespace) -> None:
         (to_bed_line(c, p, r, a, args.sample) for c, p, r, a in cands),
         key=lambda b: (b.split("\t")[0], int(b.split("\t")[2])),
     )
-    features = extract_features(args, beds)
+    features, dropped = extract_features(args, beds)
+    rate = dropped / len(cands) if cands else 0.0
+    log.info("variants_dropped=%d  dropout_rate=%.3f", dropped, rate)
+    if rate > args.max_dropout:
+        log.error(
+            "dropout %d/%d (%.1f%%) exceeds --max-dropout %.1f%% — "
+            "unevaluated candidates are not negatives; raise --timeout or lower "
+            "--workers, then re-run",
+            dropped, len(cands), 100.0 * rate, 100.0 * args.max_dropout,
+        )
+        raise SystemExit(1)
     if features is None:
         return
 
@@ -262,8 +289,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--workers", type=int, default=4, help="concurrent variants (parallel RLF processes) [4]"
     )
     p.add_argument("--threads", type=int, default=1, help="RLF internal threads per variant [1]")
-    p.add_argument("--timeout", type=int, default=300, help="per-variant timeout seconds [300]")
-    p.add_argument("--retries", type=int, default=5, help="per-variant retries on timeout [5]")
+    p.add_argument(
+        "--timeout", type=int, default=900,
+        help="per-variant timeout seconds for the FIRST attempt; doubles per retry [900]",
+    )
+    p.add_argument(
+        "--timeout-max", type=int, default=3600,
+        help="ceiling for the escalating per-variant timeout [3600]",
+    )
+    p.add_argument("--retries", type=int, default=3, help="per-variant attempts on timeout [3]")
+    p.add_argument(
+        "--max-dropout", type=float, default=0.10,
+        help="fail if more than this fraction of candidates yield no features [0.10]",
+    )
     p.add_argument(
         "--min-prob",
         type=float,
