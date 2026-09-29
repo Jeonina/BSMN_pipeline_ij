@@ -132,13 +132,14 @@ filtering:
     mayo_filter: 4
     pon_mask_filter: 4
 
-  # mem_gb overrides per rule. The built-in defaults are derived from
-  # gatk_memory_gb and are UNMEASURED (CNVnator is not even a JVM tool), and they
-  # become the next concurrency gate once threads are right: 16 GB for
-  # cnvnator_root caps the stage at 4 concurrent on a 75 GB budget. Every rule now
-  # writes benchmarks/filtering/{sample}/{rule}.tsv — read max_rss (MB) from the
-  # first samples and pin the values here before scaling to the full cohort.
-  mem_gb: {}              # e.g.  cnvnator_root: 6
+  # mem_gb overrides per rule (GB). Defaults: gatk_memory_gb (8) per rule,
+  # x2 (16) for cnvnator_root. The reservation, divided into the --resources
+  # mem_mb budget, sets how many samples filter at once, so tune it to your host.
+  # Every rule writes benchmarks/filtering/{sample}/{rule}.tsv - set each value a
+  # little above the max_rss (MB) seen on your first samples.
+  # Reference point: cnvnator_root peaked at ~12.9 GB on hg38 binsize 100 (set by
+  # the ROOT histogram, not by coverage) - do not go below ~14 for it.
+  mem_gb: {}              # e.g.  {cnvnator_root: 14}
 
   # Step 2: germline filter (remove gnomAD AF > 0.001 known germline)
   gnomad:
