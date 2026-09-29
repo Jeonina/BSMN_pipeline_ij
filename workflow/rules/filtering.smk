@@ -401,7 +401,7 @@ rule mayo_filter:
         mkdir -p {params.binshim}
         cat > {params.binshim}/samtools <<SHIM
 #!/bin/bash
-exec apptainer exec $SIF samtools "\$@"
+exec apptainer exec $SIF samtools "\\$@"
 SHIM
         chmod +x {params.binshim}/samtools
         export PATH="$(cd {params.binshim} && pwd):$PATH"
