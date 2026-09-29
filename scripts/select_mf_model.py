@@ -95,7 +95,19 @@ def measure_depth(cram: str, ref: str, region: str, samtools_sif: str) -> float:
         cram,
     ]
     log.info("measuring depth: %s", " ".join(cmd))
-    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        log.error("samtools coverage failed (exit %d):\n%s", res.returncode, res.stderr.strip())
+        if "No such file" in res.stderr and os.path.exists(cram):
+            # Visible on the host but not in the container: a path outside the
+            # working directory (e.g. results/ symlinked to NFS) that is not bound.
+            log.error(
+                "%s exists on the host but not inside the container - "
+                "export APPTAINER_BIND to include its real location (%s)",
+                cram,
+                os.path.realpath(cram),
+            )
+        raise SystemExit(1)
     return parse_meandepth(res.stdout)
 
 
