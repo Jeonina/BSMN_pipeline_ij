@@ -23,8 +23,8 @@ bash scripts/server_setup.sh        # ends with the resource verify gate
 
 Confirm the final `[5/5] Verifying resources` step lists every file with `✓`,
 including `af-only-gnomad.hg38.vcf.gz`, `gnomAD.hg38.AFover0.001.snps.txt.gz`,
-the `.bed` 1KG mask, and
-`resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds`.
+the `.bed` 1KG mask, and the depth-labelled MosaicForecast models under
+`resources/MosaicForecast/models_trained/` (`<depth>xRFmodel_addRMSK_Refine.rds`).
 
 Then dry-run the DAG:
 

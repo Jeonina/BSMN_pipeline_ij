@@ -103,26 +103,33 @@ fi
 # config filtering.mosaicforecast.model). The container ships the MF scripts +
 # k24 bigwig but NOT the models_trained/*.rds files.
 MF_DIR="resources/MosaicForecast"
-# Verify the model the config actually points at, not a hardcoded one: the RF
-# models are depth-specific and each cohort picks its own (see the depth rule in
-# config/config.yaml filtering.mosaicforecast.model).
+# model: "auto" (default) picks a depth-matched model per sample from
+# models_trained/; the clone ships the whole depth-labelled set, so one of them
+# (100x) stands in as the presence check. A pinned path in config/config.yaml
+# filtering.mosaicforecast.model is verified as given.
 MF_MODEL="$(sed -n 's/^[[:space:]]*model:[[:space:]]*"\(.*\)".*/\1/p' config/config.yaml | head -1)"
-[[ -n "$MF_MODEL" ]] || MF_MODEL="$MF_DIR/models_trained/250xRFmodel_addRMSK_Refine.rds"
-if [[ -f "$MF_MODEL" ]]; then
-    echo "  ✓ $MF_MODEL (already present)"
+[[ -n "$MF_MODEL" ]] || MF_MODEL="auto"
+if [[ "$MF_MODEL" == "auto" ]]; then
+    MF_CHECK="$MF_DIR/models_trained/100xRFmodel_addRMSK_Refine.rds"
 else
-    echo "  → Cloning MosaicForecast (for trained RF model)..."
+    MF_CHECK="$MF_MODEL"
+fi
+if [[ -f "$MF_CHECK" ]]; then
+    echo "  ✓ $MF_CHECK (already present)"
+else
+    echo "  → Cloning MosaicForecast (for trained RF models)..."
     rm -rf "$MF_DIR"
     git clone --depth 1 https://github.com/parklab/MosaicForecast.git "$MF_DIR"
-    if [[ -f "$MF_MODEL" ]]; then
-        echo "  ✓ $MF_MODEL"
+    if [[ -f "$MF_CHECK" ]]; then
+        echo "  ✓ $MF_CHECK"
     else
-        echo "  ✗ MosaicForecast clone did not contain $MF_MODEL"
-        echo "    Models the clone DOES provide (set one in config/config.yaml"
-        echo "    filtering.mosaicforecast.model, matching your mean coverage):"
+        echo "  ✗ MosaicForecast clone did not contain $MF_CHECK"
+        echo "    Models the clone DOES provide:"
         ls -1 "$MF_DIR/models_trained/" 2>/dev/null | sed 's/^/      /' || true
     fi
 fi
+echo "  MosaicForecast model: $MF_MODEL"
+ls -1 "$MF_DIR/models_trained/" 2>/dev/null | grep -E '^[0-9]+x.*_Refine\.rds$' | sed 's/^/      /' || true
 
 # ---------------------------------------------------------------------------
 # 5. Verify resources
@@ -144,7 +151,7 @@ REQUIRED_FILES=(
     "resources/hg38/gnomAD.hg38.AFover0.001.snps.txt.gz"
     "resources/hg38/PON.q20q20.05.5.fa"
     "resources/hg38/PON.q20q20.05.5.fa.fai"
-    "$MF_MODEL"
+    "$MF_CHECK"
 )
 
 ALL_OK=true

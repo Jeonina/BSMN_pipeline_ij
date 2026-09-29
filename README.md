@@ -133,11 +133,13 @@ Driving Snakemake directly:
 export APPTAINER_BIND=/storage/wgs,/tmp
 ```
 
-**3. MosaicForecast model depth.** `filtering.mosaicforecast.model` is
-depth-specific. The committed value matches this cohort (~100x); scoring ~30x WGS
-with it silently changes every mosaic call. Pick the model whose depth label is
-nearest your mean coverage — `ls resources/MosaicForecast/models_trained/`. The
-filtering stage refuses to start if the configured file is absent.
+**3. MosaicForecast model depth.** The RF models are depth-specific; scoring
+~30x WGS with a 250x model silently changes every mosaic call. With the default
+`filtering.mosaicforecast.model: "auto"`, each sample's mean depth is measured
+(`samtools coverage` over `depth_region`, default chr20) and the model with the
+nearest depth label is used; the choice is recorded in
+`results/filtering/{sample}/{sample}.mf_model.tsv`. Set a model path to pin one
+model instead. The filtering stage refuses to start when no model is present.
 
 **4. Sample sheet.** Use `run.py` (`--sample-per-dir` for one-directory-per-sample
 layouts). `scripts/build_cohort_samples.py` is **not** general — it encodes this

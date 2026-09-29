@@ -26,11 +26,14 @@
 #       → cnvnator_filter        → {sample}.cnvnator_filtered.txt (temp)
 #           (uses cnvnator/{sample}.root from rule cnvnator_root)
 #       → mosaicforecast_filter  → {sample}.mosaicforecast_filtered.txt (temp)
+#           (model from {sample}.mf_model.tsv, rule mf_model_select: per-sample
+#            depth -> nearest depth-trained RF model)
 #       → pon_mask_filter        → {sample}.final.txt  ← final output
 #   (mayo_filter is defined but unwired by default — see note above)
 # =============================================================================
 
 import os
+import re
 
 # Safe reference to filtering config (rules parsed even when stage != filtering)
 _filtering = config.get("filtering", {})
@@ -61,25 +64,38 @@ def _fthreads(rule_name, default):
 
 # MosaicForecast RF model. The trained models are depth-specific: scoring ~30x
 # WGS with the 250x model (or the reverse) silently changes every mosaic call,
-# and nothing downstream can detect it. Fail at parse time on a model that is not
-# there, and show what IS available so the choice is made deliberately.
-_mf_model = (_filtering.get("mosaicforecast", {}) or {}).get("model", "")
-if config.get("stage") in ("filtering", "all") and _mf_model and not os.path.exists(_mf_model):
-    _mf_dir = os.path.dirname(_mf_model) or "resources/MosaicForecast/models_trained"
+# and nothing downstream can detect it. model: "auto" (default) picks the model
+# per sample from its measured depth (rule mf_model_select); a path pins one
+# model for every sample. Fail at parse time when the models are not there, and
+# show what IS available so the choice is made deliberately.
+_mf_cfg = _filtering.get("mosaicforecast", {}) or {}
+_mf_model = str(_mf_cfg.get("model", "auto"))
+_mf_mode = _mf_cfg.get("mode", "Refine")
+_mf_models_dir = _mf_cfg.get("models_dir", "resources/MosaicForecast/models_trained")
+if config.get("stage") in ("filtering", "all"):
     try:
-        _available = sorted(f for f in os.listdir(_mf_dir) if f.endswith(".rds"))
+        _available = sorted(f for f in os.listdir(_mf_models_dir) if f.endswith(".rds"))
     except OSError:
         _available = []
-    raise WorkflowError(
-        f"MosaicForecast model not found: {_mf_model}\n"
-        "filtering.mosaicforecast.model must name the trained model whose depth "
-        "matches your data's mean coverage.\n"
-        + (
-            "Available in %s:\n  %s" % (_mf_dir, "\n  ".join(_available))
-            if _available
-            else "No .rds models under %s - run scripts/server_setup.sh first." % _mf_dir
+    _mf_pattern = re.compile(r"^(\d+)x[A-Za-z_]*_" + re.escape(_mf_mode) + r"\.rds$")
+    if _mf_model == "auto":
+        _missing = not any(_mf_pattern.match(f) for f in _available)
+        _what = "no '<depth>x..._%s.rds' model in %s" % (_mf_mode, _mf_models_dir)
+    else:
+        _missing = not os.path.exists(_mf_model)
+        _what = "MosaicForecast model not found: %s" % _mf_model
+    if _missing:
+        raise WorkflowError(
+            _what + "\n"
+            "filtering.mosaicforecast.model is 'auto' (per-sample choice by depth "
+            "from models_dir) or a pinned model path.\n"
+            + (
+                "Available in %s:\n  %s" % (_mf_models_dir, "\n  ".join(_available))
+                if _available
+                else "No .rds models under %s - run scripts/server_setup.sh first."
+                % _mf_models_dir
+            )
         )
-    )
 
 
 def _fmem_mb(rule_name, default_gb):
@@ -418,6 +434,51 @@ SHIM
         """
 
 
+rule mf_model_select:
+    """
+    Choose this sample's MosaicForecast RF model from its measured depth.
+
+    `samtools coverage -r {region}` reads only that region through the CRAM
+    index; the model whose depth label is nearest the meandepth is recorded in
+    {sample}.mf_model.tsv (kept, not temp: it is the provenance of every mosaic
+    call). With a pinned model the depth is still recorded and a mismatch with
+    the nearest model is logged as a warning.
+    """
+    input:
+        cram="results/mapping/{sample}/{sample}.cram",
+        crai="results/mapping/{sample}/{sample}.cram.crai",
+    output:
+        tsv="results/filtering/{sample}/{sample}.mf_model.tsv",
+    params:
+        ref=REF,
+        model=_mf_model,
+        mode=_mf_mode,
+        models_dir=_mf_models_dir,
+        region=_mf_cfg.get("depth_region", "chr20"),
+        samtools_sif=CONTAINERS["samtools"]["sif"],
+        script=os.path.join(_SCRIPTS, "select_mf_model.py"),
+    log:
+        "logs/filtering/{sample}/mf_model_select.log",
+    benchmark:
+        "benchmarks/filtering/{sample}/mf_model_select.tsv"
+    threads: 1
+    resources:
+        mem_mb=_fmem_mb("mf_model_select", 2),
+        runtime=120,
+    shell:
+        """
+        python {params.script} \
+            --cram {input.cram} \
+            --ref {params.ref} \
+            --samtools-sif {params.samtools_sif} \
+            --models-dir {params.models_dir} \
+            --mode {params.mode} \
+            --model {params.model} \
+            --region {params.region} \
+            > {output.tsv} 2> {log}
+        """
+
+
 rule mosaicforecast_filter:
     """
     MosaicForecast filter — BSMN E.MosaicForecast.sh step.
@@ -435,15 +496,13 @@ rule mosaicforecast_filter:
         txt="results/filtering/{sample}/{sample}.cnvnator_filtered.txt",
         cram="results/mapping/{sample}/{sample}.cram",
         crai="results/mapping/{sample}/{sample}.cram.crai",
+        model_tsv="results/filtering/{sample}/{sample}.mf_model.tsv",
     output:
         txt=temp("results/filtering/{sample}/{sample}.mosaicforecast_filtered.txt"),
     params:
         ref=REF,
         bam_dir="results/mapping/{sample}",
         workdir="results/filtering/{sample}/mf",
-        model=_filtering.get("mosaicforecast", {}).get(
-            "model", "resources/MosaicForecast/models_trained/250xRFmodel_addRMSK_Refine.rds"
-        ),
         mode=_filtering.get("mosaicforecast", {}).get("mode", "Refine"),
         min_prob=_filtering.get("mosaicforecast", {}).get("min_prob", 0.0),
         timeout=_filtering.get("mosaicforecast", {}).get("timeout", 900),
@@ -467,7 +526,10 @@ rule mosaicforecast_filter:
         exec >> {log} 2>&1
         echo "================================================================"
         echo "[mosaicforecast_filter] START $(date -Iseconds)"
-        echo "[mosaicforecast_filter] sample={wildcards.sample}  model={params.model}"
+        # Model chosen per sample by rule mf_model_select (column 2 of its TSV)
+        MODEL=$(awk -F'\\t' 'NR==2 {{print $2}}' {input.model_tsv})
+        [ -n "$MODEL" ] || {{ echo "[mosaicforecast_filter] no model in {input.model_tsv}"; exit 1; }}
+        echo "[mosaicforecast_filter] sample={wildcards.sample}  model=$MODEL"
         echo "================================================================"
 
         python {params.script} \
@@ -476,7 +538,7 @@ rule mosaicforecast_filter:
             --bam-dir {params.bam_dir} \
             --fmt cram \
             --ref {params.ref} \
-            --model {params.model} \
+            --model "$MODEL" \
             --mf-sif {params.mf_sif} \
             --workdir {params.workdir} \
             --mode {params.mode} \
