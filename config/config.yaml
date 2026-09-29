@@ -187,6 +187,11 @@ filtering:
     model: "auto"
     models_dir: "resources/MosaicForecast/models_trained"
     depth_region: "chr20"   # region for the depth estimate (use "20" for b37 naming)
+    # htslib MD5 reference cache (built once by rule ref_md5_cache, ~3 GB for hg38).
+    # MF decodes the CRAM without a reference once per variant; without the cache
+    # htslib tries the CRAM's @SQ UR: path, then an EBI download that hangs on
+    # hosts without outbound access. Empty = <reference dir>/ref_cache.
+    ref_cache: ""
     mode: "Refine"
     min_prob: 0.0           # 0 = all mosaic calls; 0.6 = high-confidence only
     timeout: 900            # first-attempt per-variant feature-extraction timeout (s); doubles per retry

@@ -479,6 +479,36 @@ rule mf_model_select:
         """
 
 
+# htslib MD5 reference cache for MosaicForecast (see scripts/build_ref_cache.py).
+_REF_CACHE = _mf_cfg.get("ref_cache") or os.path.join(os.path.dirname(REF), "ref_cache")
+
+
+rule ref_md5_cache:
+    """
+    Build the htslib REF_CACHE for the reference, once. MosaicForecast decodes the
+    CRAM without a reference once per variant; without this cache htslib falls
+    back to the CRAM's @SQ UR: path and then to an EBI download, which hangs
+    ~10-15 min per variant on a host without outbound access.
+    """
+    input:
+        ref=REF,
+    output:
+        manifest=os.path.join(_REF_CACHE, "manifest.tsv"),
+    params:
+        out=_REF_CACHE,
+        script=os.path.join(_SCRIPTS, "build_ref_cache.py"),
+    log:
+        "logs/filtering/ref_md5_cache.log",
+    threads: 1
+    resources:
+        mem_mb=1024,
+        runtime=120,
+    shell:
+        """
+        python {params.script} --ref {input.ref} --out {params.out} 2> {log}
+        """
+
+
 rule mosaicforecast_filter:
     """
     MosaicForecast filter — BSMN E.MosaicForecast.sh step.
@@ -497,11 +527,13 @@ rule mosaicforecast_filter:
         cram="results/mapping/{sample}/{sample}.cram",
         crai="results/mapping/{sample}/{sample}.cram.crai",
         model_tsv="results/filtering/{sample}/{sample}.mf_model.tsv",
+        ref_cache=os.path.join(_REF_CACHE, "manifest.tsv"),
     output:
         txt=temp("results/filtering/{sample}/{sample}.mosaicforecast_filtered.txt"),
     params:
         ref=REF,
         bam_dir="results/mapping/{sample}",
+        ref_cache=_REF_CACHE,
         workdir="results/filtering/{sample}/mf",
         mode=_filtering.get("mosaicforecast", {}).get("mode", "Refine"),
         min_prob=_filtering.get("mosaicforecast", {}).get("min_prob", 0.0),
@@ -538,6 +570,7 @@ rule mosaicforecast_filter:
             --bam-dir {params.bam_dir} \
             --fmt cram \
             --ref {params.ref} \
+            --ref-cache {params.ref_cache} \
             --model "$MODEL" \
             --mf-sif {params.mf_sif} \
             --workdir {params.workdir} \
