@@ -130,3 +130,21 @@ def test_escalating_timeout_doubles_and_caps():
     args = _args(Path("."), timeout=900, timeout_max=3600, retries=4)
     budgets = [min(args.timeout * (2**a), args.timeout_max) for a in range(args.retries)]
     assert budgets == [900, 1800, 3600, 3600]
+
+
+# --- mf_env -----------------------------------------------------------------
+
+
+def test_mf_env_points_htslib_at_local_cache(tmp_path):
+    env = mf.mf_env(str(tmp_path), base={"PATH": "/usr/bin"})
+    tmpl = f"{tmp_path.resolve()}/%2s/%2s/%s"
+    assert env["APPTAINERENV_REF_PATH"] == tmpl
+    assert env["APPTAINERENV_REF_CACHE"] == tmpl
+    # No URL entry: htslib must never fall back to the EBI download.
+    assert "http" not in env["APPTAINERENV_REF_PATH"]
+    assert env["PATH"] == "/usr/bin"
+
+
+def test_mf_env_without_cache_leaves_env_alone():
+    base = {"PATH": "/usr/bin"}
+    assert mf.mf_env(None, base=base) == base

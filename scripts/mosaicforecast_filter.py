@@ -100,6 +100,25 @@ def _apptainer(sif: str, *cmd: str) -> list[str]:
     return ["apptainer", "exec", sif, *cmd]
 
 
+def mf_env(ref_cache: str | None, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for MF container calls: point htslib at a local REF_CACHE.
+
+    MF's feature extraction decodes the CRAM once per variant WITHOUT a
+    reference (`samtools view <cram> | head`, to guess read length). htslib then
+    tries the CRAM's @SQ UR: path - usually from the host that did the mapping -
+    and falls back to downloading from the EBI reference server, which on a host
+    without outbound access hangs until the TCP timeout (~10-15 min per variant,
+    near-zero CPU). A REF_PATH with no URL entry resolves every contig locally.
+    The path is made absolute so it holds inside the container.
+    """
+    env = dict(os.environ if base is None else base)
+    if ref_cache:
+        tmpl = os.path.join(os.path.realpath(ref_cache), "%2s", "%2s", "%s")
+        env["APPTAINERENV_REF_PATH"] = tmpl
+        env["APPTAINERENV_REF_CACHE"] = tmpl
+    return env
+
+
 def _extract_one(
     idx: int, total: int, bed: str, args: argparse.Namespace
 ) -> tuple[str | None, str | None]:
@@ -140,7 +159,13 @@ def _extract_one(
                 args.fmt,
             )
             try:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=budget)
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=budget,
+                    env=mf_env(args.ref_cache),
+                )
             except subprocess.TimeoutExpired:
                 log.warning(
                     "[%d/%d] timeout after %ds (attempt %d/%d) — retrying",
@@ -233,6 +258,8 @@ def predict(args: argparse.Namespace, features: str) -> str:
 def run(args: argparse.Namespace) -> None:
     cands = read_candidates(args.candidates)
     log.info("candidates in=%d  sample=%s  model=%s", len(cands), args.sample, args.model)
+    if args.fmt == "cram" and not args.ref_cache:
+        log.warning("no --ref-cache: MF decodes the CRAM without a reference (see mf_env)")
     if not cands:
         log.info("no candidates — empty output")
         return
@@ -281,6 +308,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--fmt", default="cram", choices=["cram", "bam"], help="alignment format [cram]")
     p.add_argument("--ref", required=True, help="reference fasta")
+    p.add_argument(
+        "--ref-cache",
+        default=None,
+        help="htslib REF_CACHE dir (scripts/build_ref_cache.py); without it a CRAM whose "
+        "@SQ UR: path is absent on this host makes MF wait on the EBI download per variant",
+    )
     p.add_argument("--model", required=True, help="trained RF model .rds")
     p.add_argument("--mf-sif", required=True, help="MosaicForecast Apptainer .sif")
     p.add_argument("--workdir", required=True, help="scratch dir for BED/features/predictions")

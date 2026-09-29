@@ -37,6 +37,7 @@ EXPECTED_FILTER_RULES = [
     "cnvnator_root",
     "cnvnator_filter",
     "mayo_filter",
+    "mf_model_select",
     "mosaicforecast_filter",
     "pon_mask_filter",
 ]
@@ -447,6 +448,10 @@ class TestFilteringDryRun:
         # config.yaml — stage=filtering, minimal chromosomes
         dummy_ref = str(env / "ref.fasta")
         (env / "ref.fasta").touch()
+        # A depth-labelled MF model: model "auto" (default) refuses to parse without one.
+        models_dir = env / "resources" / "MosaicForecast" / "models_trained"
+        models_dir.mkdir(parents=True)
+        (models_dir / "100xRFmodel_addRMSK_Refine.rds").touch()
         cfg_data = {
             "samples": "config/samples.tsv",
             "stage": "filtering",
