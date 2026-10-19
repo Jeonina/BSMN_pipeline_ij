@@ -200,9 +200,11 @@ def audit_sample(s: str, rgs_expected: set[str], args, log_dirs) -> dict:
     fdir = dict(log_dirs).get(fhost)
     cdir = dict(log_dirs).get(chost)
 
-    # --- cascade from the filtering host's logs ---
+    # --- cascade: filtering host's logs first, then any other host (a sample whose
+    # early steps ran in a separate pilot clone has them only there) ---
+    search = [fdir] + [d for _, d in log_dirs if d != fdir] if fdir else [d for _, d in log_dirs]
     for col, sub, fname, pat in CASCADE:
-        v = grep(os.path.join(fdir, sub, s, fname), pat) if fdir else None
+        v = next((x for d in search if (x := grep(os.path.join(d, sub, s, fname), pat))), None)
         row[col] = int(v) if v is not None else ""
     if fdir:
         row["mf_model"] = (

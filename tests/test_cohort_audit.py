@@ -95,6 +95,19 @@ def test_clean_cohort_split_across_hosts(tmp_path, monkeypatch):
     assert d1["n_rg_expected"] == "2" and d1["dup_pct"] == "10.0"
 
 
+def test_cascade_falls_back_to_other_host_logs(tmp_path, monkeypatch):
+    _w(str(tmp_path / "map.tsv"), "sample_id\tfc\tudb\nD1\tF1\tU1\n")
+    _sample(tmp_path, "D1", [tmp_path / "l102"])  # pilot-style: early logs elsewhere
+    _w(
+        str(tmp_path / "l100" / "filtering" / "D1" / "pon_mask_filter.log"),
+        "variants_kept=2\nEND pon_mask_filter\n",
+    )
+    os.remove(tmp_path / "l102" / "filtering" / "D1" / "pon_mask_filter.log")
+    rc, rows = _run(tmp_path, monkeypatch)
+    assert rows["D1"]["filtering_host"] == "vm100"
+    assert rows["D1"]["pass_snv"] == "500" and rows["D1"]["pon"] == "2"
+
+
 def test_flags_duplicate_missing_and_mismatch(tmp_path, monkeypatch):
     _w(str(tmp_path / "map.tsv"), "sample_id\tfc\tudb\nD1\tF1\tU1\nD2\tF2\tU1\nD3\tF3\tU1\n")
     _sample(tmp_path, "D1", [tmp_path / "l100", tmp_path / "l102"])  # ran twice
