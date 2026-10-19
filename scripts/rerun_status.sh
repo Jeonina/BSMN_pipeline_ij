@@ -28,7 +28,7 @@ for s in $(tail -n +2 "$SHEET" | cut -f1 | sort -u); do
   elif [ -d "$m/bqsr_scatter" ];                    then st="M4 BaseRecalibrator $(cnt "$m/bqsr_scatter/*.recal.table")/$NCHR"
   elif [ -e "$m/$s.markduped.bam" ];                then st="M3 MarkDuplicates"
   elif [ -e "$m/$s.merged.bam" ];                   then st="M2 merge 완료/진행"
-  elif [ -d "$m/align" ];                           then st="M1 bwa $(cnt "$m/align/*.sorted.bam")/$R readgroup (진행 중 포함)"
+  elif [ -d "$m/align" ];                           then st="M1 bwa 완료 $(cnt "$m/align/*.sorted.bam.bai")/$R readgroup (정렬 병합 중 $(( $(cnt "$m/align/*.sorted.bam") - $(cnt "$m/align/*.sorted.bam.bai") )))"
   elif [ -d "$m/validation" ];                      then st="M0 FASTQ 검증 $(cnt "$m/validation/*.ok")/$R"
   else st="_QUEUED"; fi
   printf "  %-8s %s\n" "$s" "$st"
@@ -44,4 +44,5 @@ ps -eo comm,args | awk '
   $1=="java"{for(t in T) if (index($0,t)) n[t]++}
   BEGIN{split("MarkDuplicates BaseRecalibrator ApplyBQSR Mutect2 GetPileupSummaries LearnReadOrientationModel FilterMutectCalls",a," "); for(i in a) T[a[i]]=1}
   END{printf "실행 중  : bwa %d", b; for(t in n) printf "  %s %d", t, n[t]; printf "  cnvnator %d\n", cn}'
+echo "정렬 병합: $(ps -eo args | grep -c '[s]ambamba sort')개 (bwa가 끝난 뒤 정렬 조각을 합치는 중)"
 echo "가용메모리: $(free -g | awk '/Mem:/{print $7}') GB"
