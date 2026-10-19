@@ -7,6 +7,7 @@ for r in "$REPO" ~/IJ/BSMN_pipeline_ij ~/BSMN_pipeline_ij; do [ -d "$r/config" ]
 SHEET=${1:-config/samples.rerun3.tsv}
 LOG=$(ls -t ${2:-logs/rerun3_*.log} 2>/dev/null | head -1)
 NCHR=24
+PS=$(ps -eo comm,args)
 echo "작업폴더 : $PWD"; echo "시트     : $SHEET"; echo "로그     : $LOG"
 
 for s in $(tail -n +2 "$SHEET" | cut -f1 | sort -u); do
@@ -29,15 +30,18 @@ for s in $(tail -n +2 "$SHEET" | cut -f1 | sort -u); do
   elif [ -e "$m/$s.markduped.bam" ];                then st="M3 MarkDuplicates"
   elif [ -e "$m/$s.merged.bam" ];                   then st="M2 merge 완료/진행"
   elif [ -d "$m/align" ];                           then
-    # A readgroup is done only when its bwa|sambamba job has exited: sambamba
-    # writes the BAM and its .bai while still merging, so files alone mislead.
+    # Judge each readgroup by the REAL running binary (ps comm), not by files or
+    # by the job's bash -c line (that line names both bwa and the output BAM):
+    #   bwa reading this rg's fq1 -> aligning; sambamba writing its BAM -> merging.
     done_n=0 merge_n=0 bwa_n=0
-    for b in "$m"/align/*.sorted.bam; do [ -e "$b" ] || continue
-      if   ps -eo args | grep -F -- "$b" | grep -q '[b]wa mem'; then bwa_n=$((bwa_n+1))
-      elif ps -eo args | grep -F -- "$b" | grep -q '[s]ambamba sort'; then merge_n=$((merge_n+1))
-      else done_n=$((done_n+1)); fi
-    done
-    st="M1 bwa 완료 $done_n/$R readgroup (정렬 병합 중 $merge_n)"
+    while IFS=$'\t' read -r sid rg fq1 _; do
+      [ "$sid" = "$s" ] || continue
+      b="$m/align/$s.$rg.sorted.bam"
+      if   echo "$PS" | awk -v f="$fq1" '$1=="bwa" && index($0, f)' | grep -q .; then bwa_n=$((bwa_n+1))
+      elif [ -e "$b" ] && echo "$PS" | awk -v f="$b" '$1=="sambamba" && index($0, f)' | grep -q .; then merge_n=$((merge_n+1))
+      elif [ -e "$b" ]; then done_n=$((done_n+1)); fi
+    done < <(tail -n +2 "$SHEET")
+    st="M1 bwa 완료 $done_n/$R  (bwa 중 $bwa_n, 정렬 병합 중 $merge_n)"
   elif [ -d "$m/validation" ];                      then st="M0 FASTQ 검증 $(cnt "$m/validation/*.ok")/$R"
   else st="_QUEUED"; fi
   printf "  %-8s %s\n" "$s" "$st"
