@@ -54,7 +54,9 @@ done
 echo "진행     : $(grep -oE '[0-9]+ of [0-9]+ steps \([0-9]+%\)' "$LOG" | tail -1)"
 echo "에러     : $(grep -c 'Error in rule' "$LOG")"
 grep 'Error in rule' "$LOG" | sort | uniq -c | head -5
-echo "드라이버 : $(pgrep -fc 'snakemake --snakefile')"
+# Count top-level drivers only: Snakemake re-invokes itself (python -m snakemake
+# --target-jobs ...) to run some rules, and those children are not extra drivers.
+echo "드라이버 : $(ps -eo args | grep '[s]nakemake --snakefile' | grep -v -e '--target-jobs' -e '^/bin/sh -c' | wc -l)  (작업 실행용 하위 프로세스 제외)"
 # Real JVMs only (wrappers also carry the tool name) -> count comm=="java".
 ps -eo comm,args | awk '
   $1=="bwa"{b++} $1=="cnvnator"{cn++}
