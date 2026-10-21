@@ -3,7 +3,7 @@
 # Usage: bash scripts/rerun_status.sh [sample_sheet] [log_glob]
 #   defaults: config/samples.rerun3.tsv  logs/rerun3_*.log
 # Stage markers are checked newest-first; temp() files exist while the NEXT step runs.
-for r in "$REPO" ~/IJ/BSMN_pipeline_ij ~/BSMN_pipeline_ij; do ex "$r/config" && { cd "$r"; break; }; done
+for r in "$REPO" ~/IJ/BSMN_pipeline_ij ~/BSMN_pipeline_ij; do [ -n "$r" ] && [ -d "$r/config" ] && { cd "$r"; break; }; done
 SHEET=${1:-config/samples.rerun3.tsv}
 LOG=$(ls -t ${2:-logs/rerun3_*.log} 2>/dev/null | head -1)
 # On NFS, stat() of a file another process is writing waits for that writer's
