@@ -32,7 +32,7 @@ S=$OUT/bin/somalier
 [ -d "$OUT/1kg-somalier" ] || { curl -fsSL -o "$OUT/1kg.somalier.tar.gz" \
     "https://zenodo.org/record/3479773/files/1kg.somalier.tar.gz?download=1"
     tar -xzf "$OUT/1kg.somalier.tar.gz" -C "$OUT"; }
-"$S" --version 2>&1 | head -1
+echo "somalier $VER"   # `somalier --version` exits non-zero, which set -e would treat as failure
 
 # --- extract: one .somalier per CRAM (sample name = @RG SM = D-number) -------------
 tail -n +2 "$INFO" | cut -f1 | while read -r s; do
