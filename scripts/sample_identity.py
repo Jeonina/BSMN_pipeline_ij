@@ -154,15 +154,21 @@ def cmd_pileup(args) -> int:
         (todo if os.path.exists(cram + ".crai") else missing).append(s)
     print(f"to run: {len(todo)}  missing CRAM: {' '.join(s['sample_id'] for s in missing) or '-'}")
 
-    failed = 0
+    failed = ok = 0
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futs = [pool.submit(pileup_sample, s, args, sites, regions_path) for s in todo]
         for fut in as_completed(futs):
             try:
                 print(fut.result(), flush=True)
+                ok += 1
             except Exception as exc:  # report every sample, fail at the end
                 failed += 1
                 print(f"FAILED\t{exc}", flush=True)
+                if failed >= 3 and not ok:   # a setup error, not a bad sample: stop
+                    for f in futs:
+                        f.cancel()
+                    print("ABORT: first 3 samples failed, nothing succeeded", flush=True)
+                    break
     return 1 if failed else 0
 
 
