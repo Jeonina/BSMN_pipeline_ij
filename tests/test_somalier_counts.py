@@ -3,7 +3,7 @@
 import gzip
 import struct
 
-from scripts.somalier_counts import load_sites, parse_counts, write_somalier
+from scripts.somalier_counts import load_sites, parse_counts, select_sites, write_somalier
 
 SITES = [("chr1", 100, "G", "C"), ("chr2", 200, "T", "C"), ("chrX", 300, "A", "G"), ("chrY", 400, "C", "T")]
 
@@ -31,3 +31,11 @@ def test_write_somalier_binary_layout(tmp_path):
     recs = [struct.unpack("<III", b[10 + 12 * i: 22 + 12 * i]) for i in range(4)]
     assert recs == [(30, 18, 2), (0, 0, 0), (5, 6, 0), (0, 0, 0)]
     assert len(b) == 2 + 2 + 6 + 12 * 4
+
+
+def test_select_sites_strides_autosomes_keeps_xy():
+    sites = [("chr1", i, "A", "G") for i in range(1, 8)] + [("chrX", 1, "A", "G"), ("chrY", 1, "A", "G")]
+    got = select_sites(sites, 3)
+    assert [p for c, p, *_ in got if c == "chr1"] == [1, 4, 7]
+    assert ("chrX", 1, "A", "G") in got and ("chrY", 1, "A", "G") in got
+    assert select_sites(sites, 1) == sites

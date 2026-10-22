@@ -10,13 +10,15 @@
 #               Phenotype sheet is checked against it; Dx groups differ in Race).
 #
 # Usage (VM100, pipeline directory; the CRAM tree under results/):
-#   APPTAINER_BIND not needed (static binary).  Re-running skips finished extracts.
-#   bash ~/somalier_qc.sh ~/sample_info.tsv /mnt/data/bsmn/somalier 8
+#   Counting uses the bcftools container (APPTAINER_BIND defaults to /mnt/data,/tmp).
+#   Re-running skips finished extracts.
+#   bash ~/somalier_qc.sh ~/sample_info.tsv /mnt/data/bsmn/somalier 24 6   # jobs, autosomal stride
 set -euo pipefail
 
 INFO=${1:?sample_info.tsv (sample_id, br_region, sex)}
 OUT=${2:?output dir}
 JOBS=${3:-8}
+STRIDE=${4:-6}     # count every 6th autosomal site (~2.9k): I/O is ~3 MB of CRAM per site
 REF=${REF:-resources/hg38/Homo_sapiens_assembly38.fasta}
 VER=v0.3.5
 mkdir -p "$OUT/extracted" "$OUT/bin"
@@ -35,13 +37,15 @@ S=$OUT/bin/somalier
 echo "somalier $VER"   # `somalier --version` exits non-zero, which set -e would treat as failure
 
 # --- extract: one .somalier per CRAM (sample name = D-number) ----------------------
-# `somalier extract` took ~5 h per ~100x CRAM over NFS (~1 s/site); bcftools mpileup
-# counts the same sites ~15x faster, and somalier_counts.py writes the .somalier binary.
+# `somalier extract` took ~5 h per ~100x CRAM over NFS: each site costs ~3 MB of CRAM
+# reads and the storage tops out near 70 MB/s for any tool. So bcftools counts only a
+# stride of the autosomal sites (plus all X/Y) and somalier_counts.py writes the
+# .somalier binary (uncounted sites = 0/0/0 = no data for somalier).
 export APPTAINER_BIND=${APPTAINER_BIND:-/mnt/data,/tmp}
 python "$(dirname "$0")/somalier_counts.py" --sample-info "$INFO" --results results \
     --sites "$OUT/sites.hg38.vcf.gz" --ref "$REF" \
     --bcftools "apptainer exec containers/bcftools_1.17.sif bcftools" \
-    --out-dir "$OUT/extracted" --jobs "$JOBS" || echo "WARNING: some samples failed; relating the rest"
+    --out-dir "$OUT/extracted" --jobs "$JOBS" --auto-stride "$STRIDE" || echo "WARNING: some samples failed; relating the rest"
 echo "extracted: $(ls "$OUT"/extracted/*.somalier | wc -l)"
 
 # --- relate: ped carries the metadata sex (1=M, 2=F); family = donor ----------------

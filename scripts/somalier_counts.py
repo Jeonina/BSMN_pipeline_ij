@@ -2,10 +2,12 @@
 """Write somalier .somalier files from bcftools mpileup counts (fast replacement for `somalier extract`).
 
 `somalier extract` on ~100x CRAMs over NFS ran ~1 s per site (~5 h per sample at
-17k sites; measured 2026-10-22), while bcftools mpileup -R on the same CRAMs runs
-~0.06 s per site.  The .somalier format is just per-site read counts, so this
-script counts with bcftools and writes the same binary; `somalier relate` and
-`somalier ancestry` then run unchanged against the 1000 Genomes .somalier files.
+17k sites; measured 2026-10-22). The cost is I/O, not the tool: each spread-out
+site needs ~3 MB of CRAM and the storage tops out near 70 MB/s, so bcftools is no
+faster per site. The fix is fewer sites (--auto-stride). The .somalier format is
+just per-site read counts, so this script counts with bcftools and writes the same
+binary; `somalier relate` and `somalier ancestry` then run unchanged against the
+1000 Genomes .somalier files.
 
 .somalier layout (somalier src/somalierpkg/common.nim, formatVersion 2), little-endian:
   uint8 version=2 | uint8 len(name) | name | uint16 n_auto | uint16 n_x | uint16 n_y
@@ -35,6 +37,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 FORMAT_VERSION = 2
 MIN_COVERED = 0.5   # fewer covered sites than this = chromosome naming / setup error
+
+
+def select_sites(sites: list, auto_stride: int) -> list:
+    """Every auto_stride-th autosomal site plus every X/Y site (the ones that get counted).
+
+    Reading cost is per site (~3 MB of CRAM per site on these ~100x files), so a
+    stride cuts I/O proportionally. Uncounted sites are written as 0/0/0, which
+    somalier treats as no data and skips; ancestry and relatedness need far fewer
+    than 17k sites.
+    """
+    out, k = [], 0
+    for site in sites:
+        if section(site[0]) == 0:
+            k += 1
+            if (k - 1) % auto_stride:
+                continue
+        out.append(site)
+    return out
 
 
 def load_sites(vcf: str) -> list[tuple[str, int, str, str]]:
@@ -86,7 +106,7 @@ def write_somalier(path: str, name: str, sites: list, counts: dict) -> None:
     os.replace(path + ".tmp", path)
 
 
-def count_sample(sid: str, args, sites: list, regions: str) -> str:
+def count_sample(sid: str, args, sites: list, counted: list, regions: str) -> str:
     cram = os.path.join(args.results, "mapping", sid, f"{sid}.cram")
     bt = shlex.split(args.bcftools)
     mpileup = bt + ["mpileup", "-f", args.ref, "-R", regions, "-a", "AD",
@@ -96,8 +116,8 @@ def count_sample(sid: str, args, sites: list, regions: str) -> str:
                          capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"{sid}: mpileup failed: {res.stderr[-300:]}")
-    counts = parse_counts(res.stdout, sites)
-    covered = sum(1 for v in counts.values() if v[0] + v[1] > 0) / len(sites)
+    counts = parse_counts(res.stdout, counted)
+    covered = sum(1 for v in counts.values() if v[0] + v[1] > 0) / len(counted)
     if covered < MIN_COVERED:
         raise RuntimeError(f"{sid}: only {covered:.0%} of sites covered (chromosome naming?)")
     write_somalier(os.path.join(args.out_dir, f"{sid}.somalier"), sid, sites, counts)
@@ -113,17 +133,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--bcftools", default="bcftools")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--jobs", type=int, default=24)
+    ap.add_argument("--auto-stride", type=int, default=1,
+                    help="count every Nth autosomal site only (X/Y always); 6 = ~2.9k sites")
     args = ap.parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)
     sites = load_sites(args.sites)
+    counted = select_sites(sites, args.auto_stride)
     regions = os.path.join(args.out_dir, ".sites.regions")
     with open(regions, "w") as fo:
-        fo.writelines(f"{c}\t{p}\n" for c, p, _, _ in sites)
+        fo.writelines(f"{c}\t{p}\n" for c, p, _, _ in counted)
     n = [0, 0, 0]
     for c, *_ in sites:
         n[section(c)] += 1
-    print(f"sites : {len(sites)} (auto {n[0]}, X {n[1]}, Y {n[2]})", flush=True)
+    print(f"sites : {len(sites)} (auto {n[0]}, X {n[1]}, Y {n[2]}); counted {len(counted)} "
+          f"(autosomal stride {args.auto_stride})", flush=True)
 
     with open(args.sample_info) as fh:
         ids = [r["sample_id"] for r in csv.DictReader(fh, delimiter="\t")]
@@ -137,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failed = ok = 0
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futs = [pool.submit(count_sample, s, args, sites, regions) for s in todo]
+        futs = [pool.submit(count_sample, s, args, sites, counted, regions) for s in todo]
         for fut in as_completed(futs):
             try:
                 print(fut.result(), flush=True)
