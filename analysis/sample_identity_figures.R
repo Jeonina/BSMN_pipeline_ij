@@ -66,7 +66,7 @@ fc <- ggplot(sex, aes(x_het_rate, chrY_chr22_depth, colour = sex_meta)) +
   geom_point(data = bad_sex, shape = 21, size = 4.5, stroke = 1, colour = "black") +
   geom_text_repel(data = bad_sex, aes(label = br_region), colour = "black", size = 3, min.segment.length = 0) +
   scale_colour_manual(values = sex_cols, name = "Metadata sex") +
-  labs(tag = "C", x = "chrX heterozygous-site fraction (non-PAR)", y = "chrY / chr22 depth (MQ ≥ 30)",
+  labs(tag = "C", x = "chrX heterozygous-site fraction (non-PAR)", y = "chrY / chr22 depth (MQ >= 30)",
        title = sprintf("Sex check: %d / %d match metadata", sum(sex$status == "OK"), nrow(sex))) +
   theme(legend.position = "top", legend.justification = "left")
 
