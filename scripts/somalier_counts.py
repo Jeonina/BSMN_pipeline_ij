@@ -115,7 +115,8 @@ def count_sample(sid: str, args, sites: list, counted: list, regions: str) -> st
     res = subprocess.run(["bash", "-o", "pipefail", "-c", f"{shlex.join(mpileup)} | {shlex.join(query)}"],
                          capture_output=True, text=True)
     if res.returncode != 0:
-        raise RuntimeError(f"{sid}: mpileup failed: {res.stderr[-300:]}")
+        err = res.stderr.strip()
+        raise RuntimeError(f"{sid}: mpileup failed: {err[:400]}{' ... ' + err[-200:] if len(err) > 600 else ''}")
     counts = parse_counts(res.stdout, counted)
     covered = sum(1 for v in counts.values() if v[0] + v[1] > 0) / len(counted)
     if covered < MIN_COVERED:
@@ -173,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
                     for f in futs:
                         f.cancel()
                     print("ABORT: first 3 samples failed, nothing succeeded", flush=True)
-                    break
+                    return 2
     return 1 if failed else 0
 
 

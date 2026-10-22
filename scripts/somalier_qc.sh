@@ -45,7 +45,12 @@ export APPTAINER_BIND=${APPTAINER_BIND:-/mnt/data,/tmp}
 python "$(dirname "$0")/somalier_counts.py" --sample-info "$INFO" --results results \
     --sites "$OUT/sites.hg38.vcf.gz" --ref "$REF" \
     --bcftools "apptainer exec containers/bcftools_1.17.sif bcftools" \
-    --out-dir "$OUT/extracted" --jobs "$JOBS" --auto-stride "$STRIDE" || echo "WARNING: some samples failed; relating the rest"
+    --out-dir "$OUT/extracted" --jobs "$JOBS" --auto-stride "$STRIDE" || rc=$?
+case ${rc:-0} in
+  0) ;;
+  2) echo "ABORT: counting failed for every sample tried; not running relate/ancestry" >&2; exit 1 ;;
+  *) echo "WARNING: some samples failed; relating the rest" ;;
+esac
 echo "extracted: $(ls "$OUT"/extracted/*.somalier | wc -l)"
 
 # --- relate: ped carries the metadata sex (1=M, 2=F); family = donor ----------------
