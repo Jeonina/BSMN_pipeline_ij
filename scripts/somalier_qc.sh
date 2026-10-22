@@ -34,12 +34,14 @@ S=$OUT/bin/somalier
     tar -xzf "$OUT/1kg.somalier.tar.gz" -C "$OUT"; }
 echo "somalier $VER"   # `somalier --version` exits non-zero, which set -e would treat as failure
 
-# --- extract: one .somalier per CRAM (sample name = @RG SM = D-number) -------------
-tail -n +2 "$INFO" | cut -f1 | while read -r s; do
-  c=$cd_pipe/results/mapping/$s/$s.cram
-  if [ -s "$OUT/extracted/$s.somalier" ]; then continue; fi
-  if [ -e "$c.crai" ]; then echo "$c"; else echo "missing CRAM: $s" >&2; fi
-done | xargs -r -P "$JOBS" -I{} "$S" extract -d "$OUT/extracted" --sites "$OUT/sites.hg38.vcf.gz" -f "$REF" {}
+# --- extract: one .somalier per CRAM (sample name = D-number) ----------------------
+# `somalier extract` took ~5 h per ~100x CRAM over NFS (~1 s/site); bcftools mpileup
+# counts the same sites ~15x faster, and somalier_counts.py writes the .somalier binary.
+export APPTAINER_BIND=${APPTAINER_BIND:-/mnt/data,/tmp}
+python "$(dirname "$0")/somalier_counts.py" --sample-info "$INFO" --results results \
+    --sites "$OUT/sites.hg38.vcf.gz" --ref "$REF" \
+    --bcftools "apptainer exec containers/bcftools_1.17.sif bcftools" \
+    --out-dir "$OUT/extracted" --jobs "$JOBS" || echo "WARNING: some samples failed; relating the rest"
 echo "extracted: $(ls "$OUT"/extracted/*.somalier | wc -l)"
 
 # --- relate: ped carries the metadata sex (1=M, 2=F); family = donor ----------------
