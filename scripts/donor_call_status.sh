@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Progress of donor-merged calling on this server (VM100 or VM102).
 # Both servers write into the same NFS results/ tree, so every count is restricted
-# to this server's donor sheet. Mutect2 progress counts scatter .tbi files (written
-# only when a chromosome finishes; the .vcf.gz grows while Mutect2 runs) plus 24 per
+# to this server's donor sheet. Mutect2 progress counts scatter .stats files (written
+# only when a chromosome finishes; the .vcf.gz grows while Mutect2 runs, and the .tbi
+# is temp and consumed by nothing, so Snakemake deletes it at once) plus 24 per
 # donor whose merged filtered VCF already exists (scatter outputs are temp).
 #
 # Usage: bash ~/donor_call_status.sh            (auto-detects VM100 / VM102)
@@ -23,8 +24,8 @@ for d in $donors; do
   if [ -s results/calling/$d/$d.filtered.vcf.gz ]; then
     m2_done=$((m2_done + 24)); called=$((called + 1))
   else
-    m2_done=$((m2_done + $(ls results/calling/$d/scatter/*.vcf.gz.tbi 2>/dev/null | wc -l)))
-    m2_day=$((m2_day + $(find results/calling/$d/scatter -name '*.vcf.gz.tbi' -mmin -1440 2>/dev/null | wc -l)))
+    m2_done=$((m2_done + $(ls results/calling/$d/scatter/*.vcf.gz.stats 2>/dev/null | wc -l)))
+    m2_day=$((m2_day + $(find results/calling/$d/scatter -name '*.vcf.gz.stats' -mmin -1440 2>/dev/null | wc -l)))
   fi
   [ -s results/filtering/$d/$d.final.txt ] && final=$((final + 1))
 done
