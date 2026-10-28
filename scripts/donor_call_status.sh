@@ -32,7 +32,23 @@ done
 echo "== $host  $(date '+%m/%d %H:%M')  donors $n_donor  log ${log:-none}"
 pgrep -f '\.venv/bin/snakemake --cores' >/dev/null && echo "driver   : running" || echo "driver   : NOT RUNNING"
 free -g | awk 'NR==2 {print "memory   : available " $7 " / " $2 " GB"} NR==3 {print "swap     : used " $3 " / " $2 " GB"}'
-echo "running  : Mutect2 $(ps -eo args | grep -c '^java .*Mutect2')  CNVnator $(pgrep -fc '^cnvnator -root' || true)  other java $(ps -eo args | grep '^java' | grep -vc Mutect2)"
+echo "Mutect2 java processes: $(ps -eo args | grep -c '^java .*Mutect2')"
+if [ -n "$log" ]; then   # jobs started in this log and not yet finished, by rule
+  python3 - "$log" <<'PY'
+import collections, re, sys
+started, finished, rule = {}, set(), None
+for line in open(sys.argv[1]):
+    m = re.match(r"\s*(?:local)?rule (\w+):", line)
+    if m: rule = m.group(1)
+    m = re.match(r"\s+jobid: (\d+)", line)
+    if m and rule: started[m.group(1)] = rule; rule = None
+    m = re.search(r"Finished job(?:id)? (\d+)", line)
+    if m: finished.add(m.group(1))
+run = collections.Counter(r for j, r in started.items() if j not in finished)
+print("running  :", ", ".join(f"{r} {n}" for r, n in run.most_common()) or "none")
+print("finished :", len(finished), "jobs in this log")
+PY
+fi
 echo "Mutect2  : $m2_done / $total chromosomes  ($((100 * m2_done / total))%), last 24 h: $m2_day"
 echo "donors   : calling done $called / $n_donor, final SNVs $final / $n_donor"
 if [ -n "$log" ]; then
