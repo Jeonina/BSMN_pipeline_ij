@@ -42,7 +42,7 @@ for line in open(sys.argv[1]):
     if m: rule = m.group(1)
     m = re.match(r"\s+jobid: (\d+)", line)
     if m and rule: started[m.group(1)] = rule; rule = None
-    m = re.search(r"Finished job(?:id)? (\d+)", line)
+    m = re.search(r"Finished job(?:id)?:? (\d+)", line)
     if m: finished.add(m.group(1))
 run = collections.Counter(r for j, r in started.items() if j not in finished)
 print("running  :", ", ".join(f"{r} {n}" for r, n in run.most_common()) or "none")
