@@ -98,7 +98,10 @@ def main(argv: list[str] | None = None) -> int:
             missing.append(s)
             continue
         calls[s] = read_final(final)
-        for src, dst in ((cram, f"{s}.cram"), (cram + ".crai", f"{s}.cram.crai")):
+        # Phase.py's last step opens "{sample}.bam" even in cram mode (mode "rc"), so the
+        # CRAM is linked under both names; htslib finds the index as "<name>.crai".
+        for src, dst in ((cram, f"{s}.cram"), (cram + ".crai", f"{s}.cram.crai"),
+                         (cram, f"{s}.bam"), (cram + ".crai", f"{s}.bam.crai")):
             link = os.path.join(bam_dir, dst)
             if os.path.lexists(link):
                 os.remove(link)
