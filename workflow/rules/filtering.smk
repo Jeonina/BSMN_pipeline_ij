@@ -515,9 +515,9 @@ rule mosaicforecast_filter:
 
     Runs MosaicForecast read-level feature extraction + trained-RF prediction
     (via the yanmei/mosaicforecast Apptainer image) on the CNVnator-passing
-    candidates and keeps only those predicted 'mosaic'. The MF scripts and the
-    k24 mappability bigwig live inside the image; the RF model is on the host
-    (cloned MosaicForecast repo). Apptainer auto-binds the project working dir,
+    candidates and keeps only those predicted 'mosaic'. The MF scripts live
+    inside the image; the RF model (cloned MosaicForecast repo) and the hg38
+    Umap k24 track (resources/hg38/, the image's own track is hg19) are on the host. Apptainer auto-binds the project working dir,
     so the reference/CRAM/model/temp paths resolve unchanged inside the
     container. min_prob=0 keeps all mosaic calls (BSMN OUT_ALL); set 0.6 for
     the high-confidence set (OUT_HC).
