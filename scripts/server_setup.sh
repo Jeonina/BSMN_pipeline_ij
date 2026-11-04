@@ -99,9 +99,22 @@ else
     echo "  ✓ $PON_OUT (already assembled)"
 fi
 
+# hg38 Umap k24 mappability for MosaicForecast (RF feature). The image ships
+# k24.umap.wg.bw, but it is hg19 and drops ~20% of hg38 candidates unscored.
+UMAP_OUT="resources/hg38/k24.Umap.MultiTrackMappability.bw"
+if [[ ! -s "$UMAP_OUT" ]]; then
+    echo "  → Downloading hg38 Umap k24 (~2 GB)..."
+    wget -q -O "$UMAP_OUT.part" \
+        https://hgdownload.soe.ucsc.edu/gbdb/hg38/hoffmanMappability/k24.Umap.MultiTrackMappability.bw
+    mv "$UMAP_OUT.part" "$UMAP_OUT"
+    echo "  ✓ $UMAP_OUT"
+else
+    echo "  ✓ $UMAP_OUT (already present)"
+fi
+
 # MosaicForecast: clone repo for the trained RF model (default E-step model,
-# config filtering.mosaicforecast.model). The container ships the MF scripts +
-# k24 bigwig but NOT the models_trained/*.rds files.
+# config filtering.mosaicforecast.model). The container ships the MF scripts
+# but NOT the models_trained/*.rds files.
 MF_DIR="resources/MosaicForecast"
 # model: "auto" (default) picks a depth-matched model per sample from
 # models_trained/; the clone ships the whole depth-labelled set, so one of them

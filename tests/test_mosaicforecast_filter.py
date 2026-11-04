@@ -148,3 +148,26 @@ def test_mf_env_points_htslib_at_local_cache(tmp_path):
 def test_mf_env_without_cache_leaves_env_alone():
     base = {"PATH": "/usr/bin"}
     assert mf.mf_env(None, base=base) == base
+
+
+# --- mappability track ------------------------------------------------------
+
+
+def test_default_umap_is_host_hg38_not_image_hg19():
+    """The image's /usr/local/bin/k24.umap.wg.bw is hg19; the default must not point at it."""
+    args = mf.build_parser().parse_args(
+        ["--candidates", "c", "--sample", "SM", "--bam-dir", "b", "--ref", "r",
+         "--model", "m", "--mf-sif", "s", "--workdir", "w"])
+    assert args.umap_bw == "resources/hg38/k24.Umap.MultiTrackMappability.bw"
+    assert "/usr/local/bin" not in args.umap_bw
+
+
+def test_run_refuses_missing_umap_track(tmp_path):
+    import pytest
+
+    cands = tmp_path / "c.txt"
+    cands.write_text("chr1\t10\tA\tT\n")
+    args = _args(tmp_path, candidates=str(cands), model="m", fmt="cram", ref_cache="x",
+                 umap_bw=str(tmp_path / "absent.bw"))
+    with pytest.raises(SystemExit, match="hg19"):
+        mf.run(args)

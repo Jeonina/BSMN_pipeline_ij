@@ -36,7 +36,7 @@ import subprocess
 import sys
 
 PHASE_SCRIPT = "/usr/local/bin/Phase.py"
-UMAP_BW = "/usr/local/bin/k24.umap.wg.bw"
+UMAP_BW = "resources/hg38/k24.Umap.MultiTrackMappability.bw"   # image's own track is hg19 (output column only)
 
 
 def read_final(path: str) -> list[tuple[str, int, str, str]]:

@@ -45,7 +45,11 @@ log = logging.getLogger("mosaicforecast_filter")
 # In-image paths (yanmei/mosaicforecast:0.0.1).
 RLF_SCRIPT = "/usr/local/bin/ReadLevel_Features_extraction.py"
 PRED_SCRIPT = "/usr/local/bin/Prediction.R"
-UMAP_BW = "/usr/local/bin/k24.umap.wg.bw"
+# The image also ships /usr/local/bin/k24.umap.wg.bw, but that track is hg19:
+# read at hg38 positions it returns 0 for ~20% of candidates, and Prediction.R
+# drops mappability 0 rows unscored. Use the hg38 Umap k24 track on the host
+# (scripts/server_setup.sh fetches it); the project dir is bound into the image.
+UMAP_BW = "resources/hg38/k24.Umap.MultiTrackMappability.bw"
 
 # Prediction-file columns, matching the BSMN awk ($35 prediction, $37 prob).
 PRED_COL = 34  # 0-based
@@ -154,7 +158,7 @@ def _extract_one(
                 tout,
                 args.bam_dir,
                 args.ref,
-                UMAP_BW,
+                args.umap_bw,
                 str(args.threads),
                 args.fmt,
             )
@@ -260,6 +264,9 @@ def run(args: argparse.Namespace) -> None:
     log.info("candidates in=%d  sample=%s  model=%s", len(cands), args.sample, args.model)
     if args.fmt == "cram" and not args.ref_cache:
         log.warning("no --ref-cache: MF decodes the CRAM without a reference (see mf_env)")
+    if not os.path.exists(args.umap_bw):
+        sys.exit(f"mappability track {args.umap_bw} missing; run scripts/server_setup.sh "
+                 "(the image's own k24.umap.wg.bw is hg19)")
     if not cands:
         log.info("no candidates — empty output")
         return
@@ -331,6 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="ceiling for the escalating per-variant timeout [3600]",
     )
     p.add_argument("--retries", type=int, default=3, help="per-variant attempts on timeout [3]")
+    p.add_argument("--umap-bw", default=UMAP_BW, help=f"hg38 Umap k24 bigWig [{UMAP_BW}]")
     p.add_argument(
         "--max-dropout", type=float, default=0.10,
         help="fail if more than this fraction of candidates yield no features [0.10]",

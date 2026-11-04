@@ -173,8 +173,10 @@ filtering:
     min_baseq: 20
 
   # Step 5: MosaicForecast filter (BSMN E-step, DEFAULT: RF mosaic prediction)
-  #   Scripts + k24.umap.wg.bw ship inside the mosaicforecast image; the RF
-  #   models are cloned to models_dir by scripts/server_setup.sh.
+  #   Scripts ship inside the mosaicforecast image; the RF models are cloned to
+  #   models_dir and the hg38 Umap k24 track is downloaded to
+  #   resources/hg38/k24.Umap.MultiTrackMappability.bw by scripts/server_setup.sh
+  #   (the image's own k24.umap.wg.bw is hg19 - do not use it).
   #
   #   The RF models are DEPTH-SPECIFIC: scoring ~30x WGS with the 250x model (or
   #   the reverse) silently changes every mosaic call. model: "auto" measures each
