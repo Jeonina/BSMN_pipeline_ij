@@ -41,9 +41,9 @@ bcftools:
   uri: docker://staphb/bcftools:1.17
   sif: containers/bcftools_1.17.sif
 
-# MosaicForecast: ships the feature-extraction/prediction scripts and the
-# k24.umap.wg.bw mappability track inside the image (/usr/local/bin). The
-# trained RF models are NOT in the image — clone them to
+# MosaicForecast: ships the feature-extraction/prediction scripts inside the
+# image (/usr/local/bin). Its k24.umap.wg.bw is hg19 and is NOT used: the hg38
+# Umap track lives in resources/hg38/. The trained RF models are NOT in the image — clone them to
 # resources/MosaicForecast/models_trained/ (see filtering.mosaicforecast.model).
 mosaicforecast:
   name: mosaicforecast
