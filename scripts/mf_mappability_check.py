@@ -176,7 +176,10 @@ def main(argv: list[str] | None = None) -> int:
         for s, old, new in scored:
             final = read_final(os.path.join(args.results, "filtering", s, f"{s}.final.txt"), s)
             n = changed = m_old = m_new = lost = gained = 0
-            for v, (lab_o, pr_o) in old.items():
+            # union: Prediction.R drops some rows (e.g. mappability 0), so a site can
+            # be predicted under one track only; a missing prediction counts as not mosaic
+            for v in sorted(old.keys() | new.keys()):
+                lab_o, pr_o = old.get(v, ("NA", ""))
                 lab_n, pr_n = new.get(v, ("NA", ""))
                 mo, mn = lab_o.startswith("mosaic"), lab_n.startswith("mosaic")
                 moved = abs(old_map.get(v, 0) - new_map.get(v, 0)) > 1e-6
