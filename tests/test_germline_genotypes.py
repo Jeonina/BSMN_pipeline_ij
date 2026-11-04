@@ -1,5 +1,7 @@
 """Tests for scripts/germline_genotypes.py (no bcftools needed)."""
 
+import pytest
+
 from scripts.germline_genotypes import af_to_dosage, cmd_merge, merge_genotypes, parse_query
 
 
@@ -21,10 +23,10 @@ def test_parse_query_keeps_biallelic_snps_on_main_chroms():
 
 
 def test_merge_fills_hom_ref_and_drops_rare_sites():
-    s1 = [(("chr2", 5, "A", "G"), "1"), (("chr1", 9, "C", "T"), "2")]
-    s2 = [(("chr2", 5, "A", "G"), "2"), (("chr1", 9, "C", "T"), ".")]
+    s1 = [(("chr1", 9, "C", "T"), "2"), (("chr2", 5, "A", "G"), "1")]
+    s2 = [(("chr1", 9, "C", "T"), "."), (("chr2", 5, "A", "G"), "2")]
     s3 = [(("chr1", 3, "G", "A"), "1")]                          # seen once: dropped at min 2
-    out = merge_genotypes([s1, s2, s3], min_carriers=2)
+    out = list(merge_genotypes([s1, s2, s3], min_carriers=2))
     assert out == [(("chr1", 9, "C", "T"), ["1/1", "./.", "0/0"]),
                    (("chr2", 5, "A", "G"), ["0/1", "1/1", "0/0"])]
 
@@ -44,3 +46,18 @@ def test_merge_cli_writes_vcf_and_sex_file(tmp_path):
     assert lines[-2].endswith("BrA_DLPFC\tBrB_Caudate")
     assert lines[-1] == "chr1\t9\t.\tC\tT\t.\tPASS\t.\tGT\t0/1\t1/1"
     assert (tmp_path / "sex_update.txt").read_text() == "BrA_DLPFC\tBrA_DLPFC\t1\nBrB_Caudate\tBrB_Caudate\t2\n"
+
+
+def test_merge_keeps_alleles_at_one_position_apart_and_orders_chrx_last():
+    s1 = [(("chr2", 7, "A", "T"), "1"), (("chr2", 7, "A", "G"), "1"), (("chrX", 1, "C", "T"), "2")]
+    s2 = [(("chr2", 7, "A", "G"), "2"), (("chrX", 1, "C", "T"), "1")]
+    out = list(merge_genotypes([s1, s2], min_carriers=1))
+    assert out == [(("chr2", 7, "A", "G"), ["0/1", "1/1"]),
+                   (("chr2", 7, "A", "T"), ["0/1", "0/0"]),
+                   (("chrX", 1, "C", "T"), ["1/1", "0/1"])]
+
+
+def test_merge_refuses_unsorted_input():
+    s1 = [(("chr2", 5, "A", "G"), "1"), (("chr1", 9, "C", "T"), "2")]
+    with pytest.raises(ValueError, match="genome order"):
+        list(merge_genotypes([s1], min_carriers=1))

@@ -13,6 +13,7 @@ CRAMs (storage-bound: ~124 GB per sample over NFS).
            contamination).  One TSV per sample; finished samples are skipped.
   merge    sites non-ref in at least --min-carriers samples -> one VCF with GT
            for every sample (absent = 0/0), plus a PLINK --update-sex file.
+           Streams a k-way merge of the sorted per-sample TSVs (a few GB of RAM).
            Sample names are br_region (Br5094_Caudate); use plink --double-id.
 
 Usage (VM100, pipeline directory):
@@ -28,11 +29,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import heapq
 import os
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import groupby
 
 CHROMS = [f"chr{i}" for i in range(1, 23)] + ["chrX"]
 CHROM_ORDER = {c: i for i, c in enumerate(CHROMS)}
@@ -106,50 +110,80 @@ def cmd_extract(args) -> int:
 
 # ----------------------------------------------------------------- merge ----
 
-def merge_genotypes(per_sample: list[list[tuple[Site, str]]], min_carriers: int) -> list[tuple[Site, list[str]]]:
-    """Sites non-ref (het/hom/grey) in >= min_carriers samples; GT per sample, absent = 0/0."""
+def merge_genotypes(per_sample: list[Iterable[tuple[Site, str]]], min_carriers: int) -> Iterator[tuple[Site, list[str]]]:
+    """Sites non-ref (het/hom/grey) in >= min_carriers samples; GT per sample, absent = 0/0.
+
+    k-way merge of per-sample rows already in genome order (extract writes them in
+    VCF order), so memory stays ~ one row per sample instead of all 6e8 rows.
+    """
     n = len(per_sample)
-    table: dict[Site, list[str]] = {}
-    for i, rows in enumerate(per_sample):
-        for site, d in rows:
-            table.setdefault(site, ["0/0"] * n)[i] = {"1": "0/1", "2": "1/1", ".": "./."}[d]
-    keep = [(s, gts) for s, gts in table.items() if sum(g != "0/0" for g in gts) >= min_carriers]
-    keep.sort(key=lambda x: (CHROM_ORDER[x[0][0]], x[0][1]))
-    return keep
+    streams = [_ordered(i, rows) for i, rows in enumerate(per_sample)]
+    cur, gts = None, None
+    for key, i, d in heapq.merge(*streams):
+        if key != cur:
+            if gts is not None and n - gts.count("0/0") >= min_carriers:
+                yield _site(cur), gts
+            cur, gts = key, ["0/0"] * n
+        gts[i] = GT[d]
+    if gts is not None and n - gts.count("0/0") >= min_carriers:
+        yield _site(cur), gts
 
 
-def read_gt(path: str) -> list[tuple[Site, str]]:
+GT = {"1": "0/1", "2": "1/1", ".": "./."}
+
+
+def _site(key: tuple) -> Site:
+    return (CHROMS[key[0]], key[1], key[2], key[3])
+
+
+def _ordered(i: int, rows: Iterable[tuple[Site, str]]) -> Iterator[tuple[tuple, int, str]]:
+    """(sort key, sample index, dosage); sorts alleles within a position, refuses out-of-order input."""
+    prev = (-1, -1)
+    for pos, grp in groupby(rows, key=lambda r: (CHROM_ORDER[r[0][0]], r[0][1])):
+        if pos <= prev:
+            raise ValueError(f"sample #{i}: rows not in genome order at {CHROMS[pos[0]]}:{pos[1]}")
+        prev = pos
+        for (c, p, r, a), d in sorted(grp, key=lambda x: x[0][2:]):
+            yield (pos[0], p, r, a), i, d
+
+
+def read_gt(path: str) -> Iterator[tuple[Site, str]]:
     with open(path) as fh:
-        return [((c, int(p), r, a), d) for c, p, r, a, d in (line.rstrip("\n").split("\t") for line in fh)]
+        for line in fh:
+            c, p, r, a, d = line.rstrip("\n").split("\t")
+            yield (c, int(p), r, a), d
 
 
 def cmd_merge(args) -> int:
     excl = {x for x in args.exclude.split(",") if x}
     info = [r for r in load_samples(args.sample_info) if r["br_region"] not in excl]
-    per_sample = []
-    for r in info:
-        g = os.path.join(args.out_dir, f"{r['sample_id']}.gt.tsv")
+    paths = [os.path.join(args.out_dir, f"{r['sample_id']}.gt.tsv") for r in info]
+    for g in paths:
         if not os.path.exists(g):
             print(f"ERROR: {g} missing; run extract first", file=sys.stderr)
             return 1
-        per_sample.append(read_gt(g))
-    sites = merge_genotypes(per_sample, args.min_carriers)
     names = [r["br_region"] for r in info]
     out = os.path.join(args.out_dir, "cohort_germline.vcf")
-    with open(out, "w") as fo:
+    tmp = os.path.join(args.out_dir, ".cohort_germline.vcf")
+    n_sites = n_x = 0
+    with open(tmp, "w") as fo:
         fo.write("##fileformat=VCFv4.2\n")
         fo.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype from Mutect2 AF">\n')
         for c in CHROMS:
             fo.write(f"##contig=<ID={c}>\n")
         fo.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(names) + "\n")
-        for (c, p, r, a), gts in sites:
+        for (c, p, r, a), gts in merge_genotypes([read_gt(g) for g in paths], args.min_carriers):
             fo.write(f"{c}\t{p}\t.\t{r}\t{a}\t.\tPASS\t.\tGT\t" + "\t".join(gts) + "\n")
+            n_sites += 1
+            n_x += c == "chrX"
+            if n_sites % 1_000_000 == 0:
+                print(f"  {n_sites:,} SNPs written (at {c}:{p})", flush=True)
+    os.replace(tmp, out)
     sex_code = {"M": "1", "F": "2"}
     with open(os.path.join(args.out_dir, "sex_update.txt"), "w") as fo:
         for r in info:
             fo.write(f"{r['br_region']}\t{r['br_region']}\t{sex_code.get(r.get('sex', ''), '0')}\n")
-    n_x = sum(s[0] == "chrX" for s, _ in sites)
-    print(f"wrote {out}: {len(names)} samples, {len(sites)} SNPs ({len(sites) - n_x} autosomal, {n_x} chrX)")
+    print(f"wrote {out}: {len(names)} samples, {n_sites} SNPs ({n_sites - n_x} autosomal, {n_x} chrX)")
     return 0
 
 
