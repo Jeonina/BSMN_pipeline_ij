@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cmd = ["apptainer", "exec"] + (["-B", args.bind] if args.bind else []) + [
         args.mf_sif, "python3", PHASE_SCRIPT, bam_dir, phase_dir, os.path.realpath(args.ref), positions,
-        str(args.min_dp_informative), UMAP_BW, str(args.threads), "cram"]
+        str(args.min_dp_informative), os.path.realpath(UMAP_BW), str(args.threads), "cram"]
     print("command:", " ".join(cmd), flush=True)
     if args.dry_run:
         return 0
