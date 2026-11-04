@@ -70,7 +70,7 @@ def read_final(path: str, sample: str) -> set[str]:
     if not os.path.exists(path):
         return set()
     with open(path) as fh:
-        return {f"{sample}~" + "~".join(line.split("\t")[:4]) for line in fh
+        return {f"{sample}~" + "~".join(line.rstrip("\n").split("\t")[:4]) for line in fh
                 if line.strip() and not line.startswith("#")}
 
 
@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         scored = list(pool.map(rescore, sorted(feats)))
 
-    unexplained = flips = total = 0
+    unexplained = flips = total = final_total = final_seen = 0
     with open(os.path.join(args.out_dir, "variants.tsv"), "w") as fv, \
          open(os.path.join(args.out_dir, "samples.tsv"), "w") as fs:
         fv.write("sample\tid\tmap_old\tmap_hg38\tpred_old\tprob_old\tpred_new\tprob_new\tin_final\n")
@@ -191,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
                 fv.write(f"{s}\t{v}\t{old_map.get(v, 'NA')}\t{new_map.get(v, 'NA')}\t{lab_o}\t{pr_o}\t{lab_n}\t{pr_n}\t{int(v in final)}\n")
             fs.write(f"{s}\t{n}\t{changed}\t{m_old}\t{m_new}\t{lost}\t{gained}\n")
             total += n
+            final_total += len(final)
+            final_seen += len(final & old.keys())
+    print(f"final.txt SNVs found among predictions: {final_seen}/{final_total} (should be equal)", flush=True)
     print(f"done: {total} predictions, {flips} change mosaic call; {unexplained} changed without a mappability change "
           f"(should be 0); see {args.out_dir}/samples.tsv", flush=True)
     return 0

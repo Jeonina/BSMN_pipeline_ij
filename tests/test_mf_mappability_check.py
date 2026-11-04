@@ -34,6 +34,6 @@ def test_swap_mappability_replaces_column_3_only(tmp_path):
 
 def test_read_final_keys_by_sample(tmp_path):
     f = tmp_path / "D1.final.txt"
-    f.write_text("chr1\t100\tA\tG\textra\n\n")
+    f.write_text("chr1\t100\tA\tG\n\n")                       # final.txt has exactly 4 columns
     assert read_final(str(f), "D1") == {"D1~chr1~100~A~G"}
     assert read_final(str(tmp_path / "missing.txt"), "D1") == set()
