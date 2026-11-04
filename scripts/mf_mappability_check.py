@@ -7,8 +7,9 @@ at hg38 positions from an hg19 track.  The other features come from the reads, s
 no CRAM is re-read: this swaps column 3 for the value MosaicForecast would have
 got from an hg38 track, re-runs Prediction.R with each sample's model, and lists
 what changes.  The lookup is MF's own (ReadLevel_Features_extraction.py): BED
-`chrom pos pos+1 id`, score = column 6 of bigWigAverageOverBed.  It is first run
-against the image's track and must reproduce the stored column 3 exactly.
+`chrom pos pos+1 id`, score = column 6 of bigWigAverageOverBed, one call per
+variant as in the E-step.  It is first run against the image's track and must
+reproduce the stored column 3 exactly.
 
 Outputs (--out-dir; the originals are not touched):
   features/{s}.features, predictions/{s}.predictions   re-scored copies
@@ -92,10 +93,30 @@ def run(cmd: list[str]) -> str:
 
 
 def lookup(args, bw: str, bed: str, tag: str) -> dict[str, float]:
-    tab = os.path.join(args.out_dir, f"umap_{tag}.tab")
-    run(["apptainer", "exec", "--cleanenv", args.mf_sif, "bigWigAverageOverBed", bw, bed, tab])
-    with open(tab) as fh:
-        return parse_bw_average(fh.read())
+    """One bigWigAverageOverBed call per variant, as the E-step ran it.
+
+    A single call over all variants is not equivalent: for a position past the
+    track's chromosome end (hg38 chr18:79.9 Mb in the hg19 track) the batch call
+    reports 1 where the per-variant call reported 0 (24 of 10,576 on VM100).
+    """
+    with open(bed) as fh:
+        lines = fh.readlines()
+    loop = ('while IFS= read -r l; do printf "%s\\n" "$l" > "$1.one"; '
+            'bigWigAverageOverBed "$2" "$1.one" "$1.out" && cat "$1.out"; done < "$1"; rm -f "$1.one" "$1.out"')
+    parts = []
+    for i in range(args.jobs):
+        part = os.path.join(args.out_dir, f"umap_{tag}.part{i}")
+        with open(part, "w") as fo:
+            fo.writelines(lines[i::args.jobs])
+        parts.append(part)
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        outs = list(pool.map(lambda p: run(["apptainer", "exec", "--cleanenv", args.mf_sif,
+                                            "bash", "-c", loop, "_", p, bw]), parts))
+    for p in parts:
+        os.remove(p)
+    with open(os.path.join(args.out_dir, f"umap_{tag}.tab"), "w") as fo:
+        fo.write("".join(outs))
+    return parse_bw_average("".join(outs))
 
 
 def main(argv: list[str] | None = None) -> int:
